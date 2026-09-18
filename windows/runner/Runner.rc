@@ -1,4 +1,4 @@
-// Microsoft Visual C++ generated resource script.
+﻿// Microsoft Visual C++ generated resource script.
 //
 #pragma code_page(65001)
 #include "resource.h"
@@ -90,12 +90,12 @@ BEGIN
         BLOCK "040904e4"
         BEGIN
             VALUE "CompanyName", "com.luoyunzong" "\0"
-            VALUE "FileDescription", "luoyunzong" "\0"
+            VALUE "FileDescription", "落云宗 · 宗门管理" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
             VALUE "InternalName", "luoyunzong" "\0"
             VALUE "LegalCopyright", "Copyright (C) 2026 com.luoyunzong. All rights reserved." "\0"
             VALUE "OriginalFilename", "luoyunzong.exe" "\0"
-            VALUE "ProductName", "luoyunzong" "\0"
+            VALUE "ProductName", "落云宗 · 宗门管理" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END
