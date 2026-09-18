@@ -195,7 +195,8 @@ class NeteaseClient {
         if (res.statusCode != 200 && res.statusCode != 206) return null;
         // 不可播放（VIP / 下架）时网易云返回 HTML 提示页
         if (type.contains('text/html')) return null;
-        return current;
+        // 统一升级到 HTTPS（网易云 CDN 支持；iOS/macOS 的 ATS 只放行 HTTPS）
+        return current.replaceFirst('http://', 'https://');
       }
       return current;
     } catch (_) {
@@ -259,9 +260,13 @@ class NeteaseClient {
   }
 
   /// 封面小图地址（网易云支持 `?param=WxH` 裁剪）。
+  ///
+  /// 强制 HTTPS：网易云封面默认给的是 http 地址，iOS/macOS 的 App Transport Security
+  /// 会直接拦掉，导致封面加载失败。
   static String coverUrl(OnlineTrack track, {int size = 120}) {
     if (track.cover.isEmpty) return '';
-    return '${track.cover}?param=${size}y$size';
+    final String secure = track.cover.replaceFirst('http://', 'https://');
+    return '$secure?param=${size}y$size';
   }
 
   void close() => _client.close();

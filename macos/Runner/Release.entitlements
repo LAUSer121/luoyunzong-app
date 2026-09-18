@@ -4,5 +4,8 @@
 <dict>
 	<key>com.apple.security.app-sandbox</key>
 	<true/>
+	<!-- 联网权限：在线修仙电台搜索/播放与封面加载（沙盒应用没这个键就没有出网能力） -->
+	<key>com.apple.security.network.client</key>
+	<true/>
 </dict>
 </plist>

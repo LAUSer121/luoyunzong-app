@@ -1,4 +1,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- 联网权限：在线修仙电台（网易云搜索/播放）与封面加载需要；
+         Flutter 模板只在 debug/profile 里带 INTERNET，发布包必须在这里声明，
+         否则手机上会报 Failed host lookup: 'music.163.com'。 -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
     <application
         android:label="落云宗"
         android:name="${applicationName}"
