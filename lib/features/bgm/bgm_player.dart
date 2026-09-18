@@ -84,7 +84,7 @@ class _BgmFabState extends State<BgmFab> {
   Widget _panel(BuildContext context, AppState state, BgmController bgm) {
     final BgmTrack? current = bgm.current;
     final String? cover = current?.cover;
-    final String subtitle = current?.subtitle ?? '未选择音乐';
+    final String subtitle = current?.subtitle ?? '点曲单或在线电台添加音乐';
 
     return GlassPanel(
       child: SizedBox(
@@ -439,6 +439,9 @@ class _BgmFabState extends State<BgmFab> {
 }
 
 /// 悬浮面板底：半透明玉牌。
+///
+/// 必须是 Material：面板里有 SwitchListTile / InkWell，
+/// 缺少 Material 祖先时它们的背景与涟漪会画在错误的表面上（表现为一块白窗）。
 class GlassPanel extends StatelessWidget {
   const GlassPanel({required this.child, super.key});
 
@@ -446,21 +449,25 @@ class GlassPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: const Color(0xF21B2030),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppColors.outline),
-        boxShadow: <BoxShadow>[
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.4),
-            blurRadius: 20,
-            offset: const Offset(0, 8),
-          ),
-        ],
+    return Material(
+      color: const Color(0xF21B2030),
+      borderRadius: BorderRadius.circular(14),
+      clipBehavior: Clip.antiAlias,
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: AppColors.outline),
+          boxShadow: <BoxShadow>[
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.4),
+              blurRadius: 20,
+              offset: const Offset(0, 8),
+            ),
+          ],
+        ),
+        child: child,
       ),
-      child: child,
     );
   }
 }

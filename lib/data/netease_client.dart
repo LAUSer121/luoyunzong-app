@@ -87,19 +87,25 @@ class NeteaseClient {
     }
     final Map<String, Object?> json =
         jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, Object?>;
+    return parseSearchResponse(json);
+  }
+
+  /// 解析搜索响应（官方 cloudsearch/pc 与自建代理 `/search` 结构一致）：
+  /// `result.songs[].ar[].name` / `al.picUrl` / `dt`。
+  static List<OnlineTrack> parseSearchResponse(Map<String, Object?> json) {
     final Object? result = json['result'];
     if (result is! Map) return <OnlineTrack>[];
     final List<Object?> songs =
         (result['songs'] as List<Object?>?) ?? const <Object?>[];
-    return songs.map(_songFromPublic).whereType<OnlineTrack>().toList();
+    return songs.map(_songFromJson).whereType<OnlineTrack>().toList();
   }
 
-  /// 解析 cloudsearch/pc 的歌曲结构（`ar` / `al` / `dt`）。
-  OnlineTrack? _songFromPublic(Object? raw) {
+  static OnlineTrack? _songFromJson(Object? raw) {
     if (raw is! Map) return null;
     final Map<String, Object?> song = raw.cast<String, Object?>();
     final String id = '${song['id'] ?? ''}';
-    if (id.isEmpty) return null;
+    // 网易云偶发返回 id=0 的占位条目，直接跳过。
+    if (id.isEmpty || id == '0') return null;
     final List<Object?> artists =
         (song['ar'] as List<Object?>?) ?? const <Object?>[];
     final String artist = artists
@@ -131,41 +137,7 @@ class NeteaseClient {
     }
     final Map<String, Object?> json =
         jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, Object?>;
-    final Object? result = json['result'];
-    if (result is! Map) return <OnlineTrack>[];
-    final List<Object?> songs =
-        (result['songs'] as List<Object?>?) ?? const <Object?>[];
-    return songs
-        .map((Object? raw) {
-          if (raw is! Map) return null;
-          final Map<String, Object?> song = raw.cast<String, Object?>();
-          final String id = '${song['id'] ?? ''}';
-          if (id.isEmpty) return null;
-          String artist = '';
-          final Object? ar = song['ar'] ?? song['artists'];
-          if (ar is List) {
-            artist = ar
-                .whereType<Map<Object?, Object?>>()
-                .map((Map<Object?, Object?> a) => '${a['name'] ?? ''}')
-                .where((String s) => s.isNotEmpty)
-                .join(' / ');
-          }
-          String cover = '';
-          final Object? al = song['al'] ?? song['album'];
-          if (al is Map) cover = '${al['picUrl'] ?? ''}';
-          return OnlineTrack(
-            id: id,
-            name: '${song['name'] ?? '未知曲目'}',
-            artist: artist,
-            cover: cover,
-            durationMs:
-                (song['dt'] as num?)?.toInt() ??
-                (song['duration'] as num?)?.toInt() ??
-                0,
-          );
-        })
-        .whereType<OnlineTrack>()
-        .toList();
+    return parseSearchResponse(json);
   }
 
   /// 取可播放流地址；受版权限制 / 需要会员时返回 `null`。
