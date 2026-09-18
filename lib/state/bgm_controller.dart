@@ -5,6 +5,7 @@
 library;
 
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/foundation.dart';
@@ -20,6 +21,7 @@ class BgmTrack {
     this.bytes,
     this.sessionOnly = false,
     this.online,
+    this.autoPicked = false,
   });
 
   final String name;
@@ -31,6 +33,9 @@ class BgmTrack {
 
   /// 在线曲目（网易云）元数据。
   final OnlineTrack? online;
+
+  /// 是否由「一键仙侠电台」自动挑选（下次自动挑选时会被替换）。
+  final bool autoPicked;
 
   /// 已解析的流地址。
   String? remoteUrl;
@@ -254,6 +259,66 @@ class BgmController extends ChangeNotifier {
   // 播放控制
   // ------------------------------------------------------------------
 
+  /// 一键挑选仙侠 / 古风曲目：随机关键词搜索，逐个校验可播放性，
+  /// 挑到 [target] 首后替换上一轮自动挑选的曲目并可立即播放。
+  Future<String?> autoFillXianxia({bool playNow = true, int target = 6}) async {
+    final NeteaseClient? client = netease;
+    if (client == null) return '在线音乐客户端未就绪';
+    _resolving = true;
+    _lastError = null;
+    notifyListeners();
+
+    final math.Random rnd = math.Random();
+    final List<String> keywords = List<String>.of(NeteaseClient.presetKeywords)
+      ..shuffle(rnd);
+    final List<OnlineTrack> picked = <OnlineTrack>[];
+    final Map<String, String> resolved = <String, String>{};
+    final Set<String> seen = <String>{};
+    try {
+      for (final String kw in keywords) {
+        if (picked.length >= target) break;
+        List<OnlineTrack> found;
+        try {
+          found = await client.search(kw, limit: 15);
+        } catch (_) {
+          continue;
+        }
+        found.shuffle(rnd);
+        for (final OnlineTrack t in found) {
+          if (picked.length >= target) break;
+          if (!seen.add(t.id)) continue;
+          final String? url = await client.streamUrl(t.id);
+          if (url == null) continue;
+          resolved[t.id] = url;
+          picked.add(t);
+        }
+      }
+    } finally {
+      _resolving = false;
+    }
+
+    if (picked.isEmpty) {
+      _lastError = '没有挑到可播放的仙侠曲目（网络或版权限制）';
+      notifyListeners();
+      return _lastError;
+    }
+
+    // 替换上一轮自动挑选的曲目（手动加入的曲单不动）
+    _tracks.removeWhere((BgmTrack t) => t.autoPicked);
+    final int firstIndex = _tracks.length;
+    for (final OnlineTrack t in picked) {
+      _tracks.add(
+        BgmTrack(name: t.name, online: t, sessionOnly: true, autoPicked: true)
+          ..remoteUrl = resolved[t.id],
+      );
+    }
+    _index = firstIndex;
+    _lastError = null;
+    notifyListeners();
+    if (playNow) await loadCurrent(autoplay: true);
+    return '已自动挑选 ${picked.length} 首仙侠曲目';
+  }
+
   Future<void> loadCurrent({bool autoplay = true}) async {
     final BgmTrack? t = current;
     if (t == null) {
@@ -272,13 +337,24 @@ class BgmController extends ChangeNotifier {
         notifyListeners();
         t.remoteUrl ??= await netease?.streamUrl(t.online!.id);
         _resolving = false;
-        if (t.remoteUrl == null || t.remoteUrl!.isEmpty) {
+        final String? url = t.remoteUrl;
+        if (url == null || url.isEmpty) {
           _lastError = '无法获取《${t.name}》的播放地址（可能受版权限制）';
           _playing = false;
           notifyListeners();
           return;
         }
-        await player.play(UrlSource(t.remoteUrl!), volume: _volume);
+        try {
+          await player.play(
+            UrlSource(url, mimeType: 'audio/mpeg'),
+            volume: _volume,
+          );
+        } catch (e) {
+          // Windows(Media Foundation) 对某些直链不买账：下载到内存再播。
+          final Uint8List? bytes = await netease?.downloadBytes(url);
+          if (bytes == null) rethrow;
+          await player.play(BytesSource(bytes), volume: _volume);
+        }
       } else if (t.path != null) {
         await player.play(DeviceFileSource(t.path!), volume: _volume);
       } else if (t.bytes != null) {

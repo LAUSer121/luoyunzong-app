@@ -1,6 +1,8 @@
 /// 应用入口：主题、响应式外壳（桌面侧栏 / 手机底部导航 + 抽屉）、背景与 BGM 悬浮层。
 library;
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -97,8 +99,8 @@ class _AppShellState extends State<AppShell> {
     _bgmStarted = true;
     final AppState state = context.read<AppState>();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      // 尊重「启动自动播放」开关
-      if (state.bgmAutoPlay) state.bgm.autoStart();
+      // 尊重「启动自动播放」开关：曲单为空时自动挑选仙侠电台
+      unawaited(state.autoStartBgm());
     });
   }
 

@@ -166,6 +166,23 @@ class _BgmFabState extends State<BgmFab> {
                 ),
               ],
             ),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: bgm.resolving
+                    ? null
+                    : () async {
+                        final String? msg = await state.bgm.autoFillXianxia();
+                        if (!context.mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text(msg ?? '已切换仙侠电台')),
+                        );
+                      },
+                icon: const Icon(Icons.auto_awesome, size: 16),
+                label: Text(bgm.resolving ? '正在挑选仙侠曲目…' : '一键仙侠电台'),
+              ),
+            ),
+            const SizedBox(height: 6),
             Row(
               children: <Widget>[
                 const Icon(
@@ -609,6 +626,22 @@ Future<void> showRadioDialog(BuildContext context, AppState state) async {
                     FilledButton(
                       onPressed: loading ? null : () => runSearch(keyword.text),
                       child: Text(loading ? '搜索中…' : '搜索'),
+                    ),
+                    const SizedBox(width: 8),
+                    FilledButton.icon(
+                      onPressed: loading
+                          ? null
+                          : () async {
+                              Navigator.pop(ctx);
+                              final String? msg = await state.bgm
+                                  .autoFillXianxia();
+                              if (!context.mounted) return;
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text(msg ?? '已切换仙侠电台')),
+                              );
+                            },
+                      icon: const Icon(Icons.auto_awesome, size: 16),
+                      label: const Text('一键挑选'),
                     ),
                   ],
                 ),

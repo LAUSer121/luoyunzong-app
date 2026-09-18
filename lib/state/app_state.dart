@@ -651,6 +651,16 @@ class AppState extends ChangeNotifier {
   /// 是否允许启动后自动播放。
   bool get bgmAutoPlay => archive.bgm.autoPlay;
 
+  /// 启动时自动播放：曲单为空则自动挑选仙侠电台，否则播放已有曲目。
+  Future<void> autoStartBgm() async {
+    if (!bgmAutoPlay) return;
+    if (bgm.tracks.isNotEmpty) {
+      await bgm.autoStart();
+      return;
+    }
+    await bgm.autoFillXianxia(playNow: true);
+  }
+
   /// 在线搜索客户端使用的代理地址（空表示直连官方接口）。
   void setNeteaseBase(String apiBase) {
     netease.close();

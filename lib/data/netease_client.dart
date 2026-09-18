@@ -9,6 +9,7 @@
 library;
 
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 
@@ -140,7 +141,11 @@ class NeteaseClient {
     return parseSearchResponse(json);
   }
 
-  /// 取可播放流地址；受版权限制 / 需要会员时返回 `null`。
+  /// 取可播放流地址（**已跟随跳转的直链**）；受版权限制 / 需要会员时返回 `null`。
+  ///
+  /// 注意：必须返回最终 CDN 直链。Windows 上用 Media Foundation 播放，
+  /// 如果给它 302 跳转地址（`.../outer/url?id=x.mp3` 这种没有扩展名的 URL），
+  /// 会直接报 `WindowsAudioError: Failed to set source`。
   Future<String?> streamUrl(String id) async {
     if (useProxy) {
       try {
@@ -162,23 +167,55 @@ class NeteaseClient {
         return null;
       }
     }
-    // 官方外链：能播放时 302 到 mp3；不可播放（VIP / 下架）会返回一个 HTML 提示页。
+
     final String candidate =
         'https://music.163.com/song/media/outer/url?id=$id.mp3';
     try {
-      final http.Request req = http.Request('GET', Uri.parse(candidate))
-        ..headers.addAll(_publicHeaders)
-        ..headers['Range'] = 'bytes=0-0';
-      final http.StreamedResponse res = await _client
-          .send(req)
-          .timeout(const Duration(seconds: 15));
-      final String type = (res.headers['content-type'] ?? '').toLowerCase();
-      await res.stream.drain<void>();
-      if (type.contains('text/html')) return null;
-      return candidate;
+      // 手动跟随跳转（package:http 的 StreamedResponse 不暴露跳转历史），
+      // 直到拿到真正的 CDN 直链——Windows 的 Media Foundation 只认直链。
+      String current = candidate;
+      for (int hop = 0; hop < 4; hop++) {
+        final http.Request req = http.Request('GET', Uri.parse(current))
+          ..followRedirects = false
+          ..headers.addAll(_publicHeaders)
+          ..headers['Range'] = 'bytes=0-0';
+        final http.StreamedResponse res = await _client
+            .send(req)
+            .timeout(const Duration(seconds: 15));
+        final String type = (res.headers['content-type'] ?? '').toLowerCase();
+        await res.stream.drain<void>();
+
+        if (res.statusCode >= 300 && res.statusCode < 400) {
+          final String? location = res.headers['location'];
+          if (location == null || location.isEmpty) return null;
+          current = Uri.parse(current).resolve(location).toString();
+          continue;
+        }
+        if (res.statusCode != 200 && res.statusCode != 206) return null;
+        // 不可播放（VIP / 下架）时网易云返回 HTML 提示页
+        if (type.contains('text/html')) return null;
+        return current;
+      }
+      return current;
     } catch (_) {
-      // 网络异常时仍返回直链，交给播放器报错
-      return candidate;
+      return null;
+    }
+  }
+
+  /// 直接下载音频字节（播放器不支持流时的兜底，例如部分 Windows 环境）。
+  Future<Uint8List?> downloadBytes(
+    String url, {
+    int maxBytes = 16 * 1024 * 1024,
+  }) async {
+    try {
+      final http.Response res = await _client
+          .get(Uri.parse(url), headers: _publicHeaders)
+          .timeout(const Duration(seconds: 30));
+      if (res.statusCode != 200) return null;
+      if (res.bodyBytes.isEmpty || res.bodyBytes.length > maxBytes) return null;
+      return res.bodyBytes;
+    } catch (_) {
+      return null;
     }
   }
 
