@@ -5,10 +5,12 @@
 library;
 
 import 'dart:async';
+import 'dart:typed_data';
 
 import '../domain/models.dart';
 import '../domain/repository.dart';
 import 'api_client.dart';
+import 'asset_split.dart';
 
 class ApiRepository implements LuoyunRepository {
   ApiRepository({required this.client, this.fallback});
@@ -34,7 +36,12 @@ class ApiRepository implements LuoyunRepository {
     try {
       final Archive? remote = await client.fetchArchive();
       _offline = false;
-      return remote;
+      if (remote == null) return null;
+      // 存档里的大资源以 `asset:<id>` 引用存在，按需从服务端资源表还原成 data URL。
+      final Set<String> ids = referencedAssetIds(remote);
+      if (ids.isEmpty) return remote;
+      final Map<String, Uint8List> assets = await client.fetchAssets(ids);
+      return restoreAssets(remote, assets);
     } on Object {
       _offline = true;
       return fallback?.load();
@@ -44,7 +51,20 @@ class ApiRepository implements LuoyunRepository {
   @override
   Future<void> save(Archive archive) async {
     try {
-      await client.putArchive(archive);
+      // 先把大资源（头像/立绘/背景图/动态视频）上传到资源表，存档里只留引用。
+      final AssetSplit split = splitAssets(archive);
+      for (final AssetPayload asset in split.assets) {
+        try {
+          await client.uploadAsset(
+            id: asset.id,
+            bytes: asset.bytes,
+            mime: asset.mime,
+          );
+        } catch (_) {
+          // 单个资源失败不阻断整包保存（下次保存会重试，服务端按 id 去重）
+        }
+      }
+      await client.putArchive(split.archive);
       _offline = false;
     } on Object {
       _offline = true;

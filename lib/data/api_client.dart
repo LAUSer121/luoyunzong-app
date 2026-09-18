@@ -2,6 +2,7 @@
 library;
 
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 
@@ -93,6 +94,58 @@ class ApiClient {
 
   Future<void> deleteArchive() async {
     await _send(() => _client.delete(_uri('/api/archive'), headers: _headers));
+  }
+
+  // ------------------------------------------------------------------
+  // 资源（头像 / 立绘 / 背景图 / 动态视频）
+  // 存档里只存 `asset:<id>`，字节通过这两个接口收进 MySQL 的 assets 表
+  // （或转存到对象存储后返回 URL）。
+  // ------------------------------------------------------------------
+
+  /// 上传一个资源；服务端按 id 去重。
+  Future<String> uploadAsset({
+    required String id,
+    required List<int> bytes,
+    String mime = 'application/octet-stream',
+  }) async {
+    final Object? data = await _send(
+      () => _client.post(
+        _uri('/api/assets', <String, String>{'id': id, 'mime': mime}),
+        headers: <String, String>{
+          ..._headers,
+          'Content-Type': 'application/octet-stream',
+        },
+        body: bytes,
+      ),
+    );
+    if (data is Map && data['id'] is String) return data['id'] as String;
+    return id;
+  }
+
+  /// 批量拉取资源（返回 id → 字节）；缺失的 id 不会出现在结果里。
+  Future<Map<String, Uint8List>> fetchAssets(Iterable<String> ids) async {
+    final List<String> list = ids.toList();
+    if (list.isEmpty) return <String, Uint8List>{};
+    final Object? data = await _send(
+      () => _client.get(
+        _uri('/api/assets/batch', <String, String>{'ids': list.join(',')}),
+        headers: _headers,
+      ),
+    );
+    final Map<String, Uint8List> out = <String, Uint8List>{};
+    if (data is Map) {
+      for (final MapEntry<Object?, Object?> e in data.entries) {
+        final Object? value = e.value;
+        if (value is String && value.isNotEmpty) {
+          try {
+            out['${e.key}'] = base64Decode(value);
+          } catch (_) {
+            // 跳过损坏的资源
+          }
+        }
+      }
+    }
+    return out;
   }
 
   void close() => _client.close();

@@ -204,3 +204,143 @@ app.listen(process.env.PORT ?? 8080, () => console.log('luoyunzong api ready'));
 2. 首次切换前先「导出 JSON 存档」备份（本地存档不受影响）。
 3. `ApiRepository` 带 `fallback`：网络异常时读写自动回落本地，并在设置页显示「离线兜底」。
 4. 回滚：把 `main.dart` 的仓储换回 `LocalRepository` 即可，数据格式完全一致。
+
+---
+
+## 6. 头像 / 立绘 / 背景图 / 视频放哪（已实现客户端侧）
+
+先说体积，决定放哪：
+
+| 内容 | 现在的大小（程序里就是这么多） |
+| --- | --- |
+| 头像（256px JPEG q85） | 约 20–60 KB |
+| 立绘（720px JPEG q90） | 约 150–400 KB |
+| 背景图（1920px JPEG q85） | 约 300–900 KB |
+| 动态视频 | 单条上限 20 MB（`kVideoMaxBytes`） |
+
+按 30 人 + 每人 1 张立绘 + 10 条短视频估算：**图片 ≈ 12 MB，视频 ≈ 200 MB**。
+结论：**图片完全可以放 MySQL；视频建议放对象存储**。
+
+### 方案 A：整包塞 MySQL（最省事）
+
+`archives.payload LONGTEXT` 里就是完整 JSON，图片/视频的 base64 一起进去。
+适合：几个人用、视频少。要注意：
+
+```ini
+# my.cnf
+max_allowed_packet = 64M      # MySQL 8 默认 64M，5.7 只有 4M，不改会插入失败
+innodb_log_file_size = 256M
+```
+
+### 方案 B：图片进 assets 表，存档只留引用（客户端已实现，推荐）
+
+客户端在「远程仓储」保存时会自动做这件事（`lib/data/asset_split.dart`）：
+
+1. 把超过 **48 KB** 的资源（立绘 / 视频 / 背景图）抽出来；
+2. 内容哈希作为 id（**相同图片天然去重**），存档里只留 `asset:<id>`；
+3. 先 `POST /api/assets` 上传资源，再 `PUT /api/archive` 保存轻量存档；
+4. 读取时 `GET /api/assets/batch?ids=...` 批量取回，再还原成 data URL；
+   缺失的资源保持引用（界面显示占位符），不会白屏。
+
+```sql
+CREATE TABLE IF NOT EXISTS assets (
+  id         VARCHAR(40)  NOT NULL COMMENT '内容哈希，客户端生成',
+  org_id     VARCHAR(64)  NOT NULL DEFAULT 'default',
+  mime       VARCHAR(64)  NOT NULL DEFAULT 'application/octet-stream',
+  bytes      MEDIUMBLOB   NOT NULL COMMENT '单条最大 16MB；更大请用对象存储',
+  byte_size  INT UNSIGNED NOT NULL,
+  created_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (org_id, id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 也可只存 URL：bytes 换成 url VARCHAR(512)，图片放 COS/OSS/R2/MinIO
+```
+
+对应接口（与 `ApiClient.uploadAsset` / `fetchAssets` 一致）：
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| POST | `/api/assets?id=<id>&mime=<mime>` | body 为二进制；服务端按 (org_id,id) 去重，返回 `{"id":"..."}` |
+| GET | `/api/assets/batch?ids=a,b,c` | 返回 `{"a":"<base64>","b":"<base64>"}` |
+
+服务端片段（Node + mysql2）：
+
+```js
+app.post('/api/assets', auth, express.raw({ type: '*/*', limit: '32mb' }), async (req, res) => {
+  const { id, mime = 'application/octet-stream' } = req.query;
+  const buf = req.body;
+  if (!id || !Buffer.isBuffer(buf)) return res.status(400).json({ error: 'bad request' });
+  if (buf.length > 16 * 1024 * 1024) return res.status(413).json({ error: 'too large, use object storage' });
+  await pool.query(
+    `INSERT INTO assets (org_id, id, mime, bytes, byte_size) VALUES (?, ?, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE mime = VALUES(mime)`,
+    [ORG, id, mime, buf, buf.length],
+  );
+  // 想上对象存储就这里转存，然后把 url 写回 assets.url
+  res.json({ id });
+});
+
+app.get('/api/assets/batch', auth, async (req, res) => {
+  const ids = String(req.query.ids || '').split(',').filter(Boolean).slice(0, 200);
+  if (!ids.length) return res.json({});
+  const [rows] = await pool.query(
+    `SELECT id, bytes FROM assets WHERE org_id = ? AND id IN (${ids.map(() => '?').join(',')})`,
+    [ORG, ...ids],
+  );
+  res.json(Object.fromEntries(rows.map((r) => [r.id, r.bytes.toString('base64')])));
+});
+```
+
+### 方案 C：对象存储（视频多 / 人多时）
+
+- 图片/视频放 COS / OSS / Cloudflare R2 / 自建 MinIO，DB 只存 URL；
+- 客户端把 `asset:<id>` 换成 `https://cdn.你的域名/<id>.jpg` 即可（`restoreAssets` 支持直接透传 URL）；
+- 好处：数据库备份再也不含几百 MB 二进制，CDN 还能加速手机端加载。
+
+---
+
+## 7. 服务器怎么买（按人数选）
+
+### 画像：几十人用、图片为主
+
+| 方案 | 配置 | 价格区间 | 说明 |
+| --- | --- | --- | --- |
+| 国内轻量（推荐） | 腾讯云轻量 / 阿里云 ECS 2C2G，3–5 Mbps，60–80 GB SSD | ¥60–120/月（学生机 ¥10/月） | 同机跑 MySQL 8 + Node + Caddy，够 50 人用 |
+| 国内云数据库 | 腾讯云 MySQL 基础版 1C1G | ¥30–80/月 | 想省心、要自动备份就加这个；否则同机自建即可 |
+| 对象存储 | 腾讯云 COS 标准 ¥0.099/GB/月，外网流量 ¥0.5/GB | 按量 | 视频走这里，图片可继续放 DB |
+| 海外便宜 | Hetzner CX22（2C4G）≈ €4/月；Vultr/DO $6/月 | ¥30–50/月 | 不用备案，但国内访问慢，需套 CDN |
+| 海外免备案 + 免流量费 | Cloudflare R2（$0.015/GB/月，出网免费）+ Workers | 近乎免费 | 视频/图片都放这，DB 仍在服务器上 |
+
+**建议的起步组合**：1 台 **2C2G 轻量应用服务器**（¥60–100/月）跑 MySQL + API + Caddy（自动 HTTPS），
+图片直接进 `assets` 表，视频放 COS/R2；等图片超过 2–3 GB 再把图片也搬到对象存储 + CDN。
+
+### 备案与域名
+
+- 国内服务器 + 80/443 端口 → 域名需 **ICP 备案**（约 1–2 周，免费）；
+- 不想备案：用非 80/443 端口 + IP 访问，或买香港/海外节点，或用 Cloudflare Tunnel 反代。
+
+### 部署清单
+
+```bash
+# 1) MySQL：装好、建库、放开包体上限
+sudo apt install -y mysql-server
+sudo sed -i 's/^# *max_allowed_packet.*/max_allowed_packet = 64M/' /etc/mysql/mysql.conf.d/mysqld.cnf
+sudo systemctl restart mysql
+
+# 2) 初始化表（本文 schema.sql 段落）
+mysql -u root -p < schema.sql
+
+# 3) 跑 API（Node 20）
+pm2 start server/index.js --name luoyunzong-api
+pm2 save
+
+# 4) Caddy 自动 HTTPS（只需一行）
+echo 'api.你的域名.com { reverse_proxy 127.0.0.1:8080 }' | sudo tee /etc/caddy/Caddyfile
+sudo systemctl reload caddy
+
+# 5) 每天备份（存档 + 资源表），并同步到对象存储
+mysqldump --single-transaction luoyunzong | gzip > /backup/lyz-$(date +%F).sql.gz
+```
+
+客户端「设置 → 数据源」填 `https://api.你的域名.com` 与访问令牌，点「保存并测试连接」即可切换到云端；
+断网时 `ApiRepository` 会自动回落本地存档，不会丢数据。
