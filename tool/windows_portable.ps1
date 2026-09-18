@@ -59,11 +59,15 @@ try {
   Info '压缩发布目录…'
   Compress-Archive -Path (Join-Path $ReleaseDir '*') -DestinationPath $payload -Force
 
-  # 3) 拼装：[stub] + [标记] + [zip]
+  # 3) 拼装：[stub] + [标记] + [zip] + [尾部索引: 魔数 + 载荷长度]
   Info '拼装单文件便携版…'
   $outPath = [System.IO.Path]::GetFullPath($OutFile)
   if (Test-Path $outPath) { Remove-Item $outPath -Force }
   $markerBytes = [System.Text.Encoding]::ASCII.GetBytes('<<<LUOYUNZONG_PAYLOAD_V1>>>')
+  $trailerMagic = [System.Text.Encoding]::ASCII.GetBytes('<<<LUOYUNZONG_TRAILER_V1>>>')
+  $payloadLength = (Get-Item $payload).Length
+  $lengthBytes = [System.BitConverter]::GetBytes([int64]$payloadLength)
+
   $outStream = [System.IO.File]::Create($outPath)
   try {
     $stubBytes = [System.IO.File]::ReadAllBytes($stub)
@@ -71,6 +75,8 @@ try {
     $outStream.Write($markerBytes, 0, $markerBytes.Length)
     $payloadStream = [System.IO.File]::OpenRead($payload)
     try { $payloadStream.CopyTo($outStream) } finally { $payloadStream.Dispose() }
+    $outStream.Write($trailerMagic, 0, $trailerMagic.Length)
+    $outStream.Write($lengthBytes, 0, $lengthBytes.Length)
   } finally {
     $outStream.Dispose()
   }

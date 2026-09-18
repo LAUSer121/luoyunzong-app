@@ -1,6 +1,6 @@
 // 落云宗 · 宗门管理 —— 便携版单文件启动器
 //
-// 结构：[本启动器 exe] + [标记] + [Flutter 发布目录的 zip 载荷]
+// 结构：[本启动器 exe][标记][Flutter 发布目录的 zip 载荷][尾部索引: 魔数 + 载荷长度]
 // 行为：首次运行把载荷解压到目标目录，然后启动 luoyunzong.exe；
 //       数据目录固定为 <目标目录>/data，因此整个文件夹可以随身携带。
 //
@@ -8,11 +8,14 @@
 //       --print-target   只打印目标目录
 // 环境变量：LUOYUNZONG_DIR（解压目录）、LUOYUNZONG_DATA_DIR（数据目录）
 
+using System.Buffers.Binary;
 using System.Diagnostics;
 using System.IO.Compression;
 using System.Security.Cryptography;
+using System.Text;
 
 const string Marker = "<<<LUOYUNZONG_PAYLOAD_V1>>>";
+const string TrailerMagic = "<<<LUOYUNZONG_TRAILER_V1>>>";
 const string AppExe = "luoyunzong.exe";
 const string HashFile = ".payload.sha256";
 
@@ -117,34 +120,39 @@ static string ResolveTarget(string? fromEnv, string selfPath)
         "app");
 }
 
+/// <summary>通过尾部索引定位 zip 载荷起始位置；找不到返回 -1。</summary>
 static long FindPayloadOffset(string selfPath)
 {
     using FileStream fs = File.OpenRead(selfPath);
-    const int window = 512 * 1024;
-    long start = Math.Max(0, fs.Length - window);
-    int size = (int)(fs.Length - start);
-    byte[] buffer = new byte[size];
-    fs.Position = start;
-    fs.ReadExactly(buffer, 0, size);
+    byte[] magic = Encoding.ASCII.GetBytes(TrailerMagic);
+    int trailerSize = magic.Length + 8; // 魔数 + 8 字节长度
+    if (fs.Length < trailerSize + magic.Length) return -1;
 
-    byte[] marker = System.Text.Encoding.ASCII.GetBytes(Marker);
-    for (int i = buffer.Length - marker.Length; i >= 0; i--)
+    byte[] tail = new byte[trailerSize];
+    fs.Position = fs.Length - trailerSize;
+    fs.ReadExactly(tail, 0, trailerSize);
+
+    for (int i = 0; i < magic.Length; i++)
     {
-        bool match = true;
-        for (int j = 0; j < marker.Length; j++)
-        {
-            if (buffer[i + j] != marker[j])
-            {
-                match = false;
-                break;
-            }
-        }
-        if (match)
-        {
-            return start + i + marker.Length;
-        }
+        if (tail[i] != magic[i]) return -1;
     }
-    return -1;
+
+    long zipLength = BinaryPrimitives.ReadInt64LittleEndian(tail.AsSpan(magic.Length, 8));
+    long zipStart = fs.Length - trailerSize - zipLength;
+    if (zipStart <= 0 || zipStart >= fs.Length) return -1;
+
+    // 校验 zip 之前确实存在标记（防止文件被拼接/截断）
+    byte[] marker = Encoding.ASCII.GetBytes(Marker);
+    if (zipStart < marker.Length) return -1;
+    byte[] actual = new byte[marker.Length];
+    fs.Position = zipStart - marker.Length;
+    fs.ReadExactly(actual, 0, marker.Length);
+    for (int i = 0; i < marker.Length; i++)
+    {
+        if (actual[i] != marker[i]) return -1;
+    }
+
+    return zipStart;
 }
 
 static string HashRange(string selfPath, long offset)
