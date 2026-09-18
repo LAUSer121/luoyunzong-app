@@ -68,16 +68,17 @@ class NeteaseClient {
   }
 
   Future<List<OnlineTrack>> _searchPublic(String kw, int limit) async {
+    // 用 cloudsearch/pc：它带封面（al.picUrl）与歌手（ar[].name）；
+    // search/get/web 的同名字段是空的，会导致列表没有封面。
     final http.Response res = await _client
         .post(
-          Uri.parse('https://music.163.com/api/search/get/web'),
+          Uri.parse('https://music.163.com/api/cloudsearch/pc'),
           headers: _publicHeaders,
           body: <String, String>{
             's': kw,
             'type': '1',
             'offset': '0',
             'limit': '$limit',
-            'total': 'true',
           },
         )
         .timeout(const Duration(seconds: 15));
@@ -93,27 +94,28 @@ class NeteaseClient {
     return songs.map(_songFromPublic).whereType<OnlineTrack>().toList();
   }
 
+  /// 解析 cloudsearch/pc 的歌曲结构（`ar` / `al` / `dt`）。
   OnlineTrack? _songFromPublic(Object? raw) {
     if (raw is! Map) return null;
     final Map<String, Object?> song = raw.cast<String, Object?>();
     final String id = '${song['id'] ?? ''}';
     if (id.isEmpty) return null;
     final List<Object?> artists =
-        (song['artists'] as List<Object?>?) ?? const <Object?>[];
+        (song['ar'] as List<Object?>?) ?? const <Object?>[];
     final String artist = artists
         .whereType<Map<Object?, Object?>>()
         .map((Map<Object?, Object?> a) => '${a['name'] ?? ''}')
         .where((String s) => s.isNotEmpty)
         .join(' / ');
     String cover = '';
-    final Object? album = song['album'];
+    final Object? album = song['al'];
     if (album is Map) cover = '${album['picUrl'] ?? ''}';
     return OnlineTrack(
       id: id,
       name: '${song['name'] ?? '未知曲目'}',
       artist: artist,
       cover: cover,
-      durationMs: (song['duration'] as num?)?.toInt() ?? 0,
+      durationMs: (song['dt'] as num?)?.toInt() ?? 0,
     );
   }
 
@@ -166,7 +168,7 @@ class NeteaseClient {
         .toList();
   }
 
-  /// 取可播放流地址。
+  /// 取可播放流地址；受版权限制 / 需要会员时返回 `null`。
   Future<String?> streamUrl(String id) async {
     if (useProxy) {
       try {
@@ -183,12 +185,29 @@ class NeteaseClient {
           final Object? url = (data.first as Map<Object?, Object?>)['url'];
           if (url is String && url.isNotEmpty) return url;
         }
+        return null;
       } catch (_) {
-        // 落到官方直链
+        return null;
       }
     }
-    // 官方外链：可用则 302 到 mp3，不可用（VIP/下架）会重定向到 404 页面。
-    return 'https://music.163.com/song/media/outer/url?id=$id.mp3';
+    // 官方外链：能播放时 302 到 mp3；不可播放（VIP / 下架）会返回一个 HTML 提示页。
+    final String candidate =
+        'https://music.163.com/song/media/outer/url?id=$id.mp3';
+    try {
+      final http.Request req = http.Request('GET', Uri.parse(candidate))
+        ..headers.addAll(_publicHeaders)
+        ..headers['Range'] = 'bytes=0-0';
+      final http.StreamedResponse res = await _client
+          .send(req)
+          .timeout(const Duration(seconds: 15));
+      final String type = (res.headers['content-type'] ?? '').toLowerCase();
+      await res.stream.drain<void>();
+      if (type.contains('text/html')) return null;
+      return candidate;
+    } catch (_) {
+      // 网络异常时仍返回直链，交给播放器报错
+      return candidate;
+    }
   }
 
   /// 封面小图地址（网易云支持 `?param=WxH` 裁剪）。
