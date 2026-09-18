@@ -31,6 +31,7 @@ class _SettingsPageState extends State<SettingsPage> {
   final TextEditingController _apiUrl = TextEditingController();
   final TextEditingController _apiToken = TextEditingController();
   String? _storagePath;
+  bool _storagePathRequested = false;
   String? _apiStatus;
   bool _apiBusy = false;
   bool _loadedSettings = false;
@@ -70,8 +71,11 @@ class _SettingsPageState extends State<SettingsPage> {
     final Archive archive = state.archive;
     final bool unlocked = state.unlocked;
 
-    if (_storagePath == null) {
-      state.storageLocation().then((String? p) {
+    if (_storagePath == null && !_storagePathRequested) {
+      _storagePathRequested = true;
+      // 放到帧后异步读取，避免在 build 过程中触发 setState。
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        final String? p = await state.storageLocation();
         if (mounted && p != null) setState(() => _storagePath = p);
       });
     }

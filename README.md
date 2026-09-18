@@ -25,8 +25,14 @@ flutter run -d windows     # Windows 桌面
 flutter run -d macos       # macOS 桌面
 flutter run -d linux       # Linux 桌面
 flutter run -d chrome      # Web（浏览器）
-flutter devices            # 查看手机设备后：flutter run -d <device-id>
+flutter devices            # 查看手机设备后：flutter run -d <device_id>
 ```
+
+> **Windows 本地开发注意**：工程路径里**不要带空格**。带空格的路径（例如 `D:\Deepseek Harness\...`）
+> 会让 Flutter 的 native assets 构建钩子（`objective_c` 等）拼出未加引号的命令行，
+> 报 `'D:\Deepseek' 不是内部或外部命令`，`flutter test` / `flutter build` 会失败。
+> 解决方式：把工程放到无空格路径（如 `D:\dev\luoyunzong_app`）后 `flutter create .` 重新生成即可；
+> GitHub Actions 上的路径本身无空格，CI 不受影响。
 
 ## 二、打包发布
 
@@ -40,8 +46,23 @@ flutter build ios     --release --no-codesign
 flutter build web     --release     # build/web/
 ```
 
-推送到 `main` 分支会触发全平台构建；打 `v*` 标签（如 `git tag v1.0.0 && git push --tags`）
-会额外把 APK / AAB / 桌面压缩包 / Web 产物发布为 GitHub Release，并生成 `SHA256SUMS.txt`。
+本地自检（与 CI 完全一致）：
+
+```bash
+dart format --output=none --set-exit-if-changed lib test
+flutter analyze
+flutter test
+```
+
+推送到 `main` 分支会触发两条工作流：
+
+| 工作流 | 内容 |
+| --- | --- |
+| `Analyze & Test` | 格式校验 → 静态检查 → 单元/组件测试 |
+| `Build (All Platforms)` | Windows / macOS / Linux / Android(APK+AAB) / iOS(未签名) / Web 六路并行构建并上传制品 |
+
+打 `v*` 标签（如 `git tag v1.0.0 && git push --tags`）会额外把 APK / AAB / 桌面压缩包 / Web 产物
+发布为 GitHub Release，并生成 `SHA256SUMS.txt`。
 
 > iOS 正式分发需要 Apple 开发者证书：在仓库 Secrets 中配置
 > `IOS_CERTIFICATE_P12`、`IOS_CERTIFICATE_PASSWORD`、`IOS_PROVISIONING_PROFILE` 后，
