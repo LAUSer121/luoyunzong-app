@@ -81,6 +81,15 @@ class BgmController extends ChangeNotifier {
   String? get lastError => _lastError;
   bool get audioAvailable => _audioAvailable;
   Duration get duration => _duration;
+
+  /// 展示用总时长：播放器没上报时长时（部分在线流 / Media Foundation），
+  /// 回退到在线曲目元数据里的时长，保证进度条刻度正确。
+  Duration get effectiveDuration {
+    if (_duration.inMilliseconds > 0) return _duration;
+    final int meta = current?.online?.durationMs ?? 0;
+    return meta > 0 ? Duration(milliseconds: meta) : Duration.zero;
+  }
+
   Duration get position => _position;
   double get progress => _duration.inMilliseconds == 0
       ? 0
@@ -315,6 +324,13 @@ class BgmController extends ChangeNotifier {
       return;
     }
     try {
+      // 切歌时先清掉上一首的进度与时长，避免进度条停留在旧值。
+      _position = Duration.zero;
+      _duration = t.online != null && t.online!.durationMs > 0
+          ? Duration(milliseconds: t.online!.durationMs)
+          : Duration.zero;
+      notifyListeners();
+
       if (t.isOnline) {
         _resolving = true;
         notifyListeners();

@@ -26,6 +26,16 @@ class _BgmFabState extends State<BgmFab> {
     final AppState state = context.watch<AppState>();
     final BgmController bgm = state.bgm;
 
+    // 关键：切歌 / 播放状态 / 进度都来自 BgmController 的通知，
+    // 它和 AppState 是两个 ChangeNotifier，必须显式监听，否则界面要重开面板才刷新。
+    return ListenableBuilder(
+      listenable: bgm,
+      builder: (BuildContext context, Widget? _) =>
+          _fabColumn(context, state, bgm),
+    );
+  }
+
+  Widget _fabColumn(BuildContext context, AppState state, BgmController bgm) {
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.end,
@@ -234,14 +244,14 @@ class _BgmFabState extends State<BgmFab> {
   }
 
   Widget _progress(BgmController bgm) {
-    final double max = bgm.duration.inMilliseconds == 0
+    // 用 effectiveDuration：在线流没上报时长时用曲目元数据兜底，进度条才有正确刻度。
+    final Duration total = bgm.effectiveDuration;
+    final double max = total.inMilliseconds == 0
         ? 1
-        : bgm.duration.inMilliseconds.toDouble();
-    final double value = bgm.duration.inMilliseconds == 0
+        : total.inMilliseconds.toDouble();
+    final double value = total.inMilliseconds == 0
         ? 0
-        : bgm.position.inMilliseconds
-              .clamp(0, bgm.duration.inMilliseconds)
-              .toDouble();
+        : bgm.position.inMilliseconds.clamp(0, total.inMilliseconds).toDouble();
     return Row(
       children: <Widget>[
         Text(
@@ -259,12 +269,14 @@ class _BgmFabState extends State<BgmFab> {
               min: 0,
               max: max,
               value: value,
-              onChanged: (double v) => bgm.seekTo(v / 1000),
+              onChanged: total.inMilliseconds == 0
+                  ? null
+                  : (double v) => bgm.seekTo(v / 1000),
             ),
           ),
         ),
         Text(
-          formatDuration(bgm.duration),
+          formatDuration(total),
           style: const TextStyle(fontSize: 10, color: AppColors.textFaint),
         ),
       ],
@@ -280,173 +292,179 @@ class _BgmFabState extends State<BgmFab> {
       context: context,
       builder: (BuildContext ctx) => StatefulBuilder(
         builder: (BuildContext ctx, void Function(void Function()) setLocal) {
-          final BgmController controller = ctx.watch<AppState>().bgm;
-          return AlertDialog(
-            title: const Text('BGM 曲单'),
-            content: SizedBox(
-              width: 460,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  if (controller.tracks.isEmpty)
-                    const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 18),
-                      child: Text(
-                        '曲单为空：可添加本地音乐，或用「在线修仙电台」搜索',
-                        style: TextStyle(color: AppColors.textFaint),
-                      ),
-                    )
-                  else
-                    ConstrainedBox(
-                      constraints: const BoxConstraints(maxHeight: 300),
-                      child: ListView.builder(
-                        shrinkWrap: true,
-                        itemCount: controller.tracks.length,
-                        itemBuilder: (BuildContext c, int i) {
-                          final BgmTrack t = controller.tracks[i];
-                          final bool active = i == controller.index;
-                          return ListTile(
-                            dense: true,
-                            selected: active,
-                            leading: CoverArt(url: t.cover, size: 36),
-                            title: Text(
-                              t.name,
-                              style: TextStyle(
-                                color: active ? AppColors.gold : AppColors.text,
-                                fontSize: 13,
+          final BgmController controller = state.bgm;
+          // 曲单里的播放中高亮同样依赖 BgmController 的通知。
+          return ListenableBuilder(
+            listenable: controller,
+            builder: (BuildContext ctx, Widget? _) => AlertDialog(
+              title: const Text('BGM 曲单'),
+              content: SizedBox(
+                width: 460,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    if (controller.tracks.isEmpty)
+                      const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 18),
+                        child: Text(
+                          '曲单为空：可添加本地音乐，或用「在线修仙电台」搜索',
+                          style: TextStyle(color: AppColors.textFaint),
+                        ),
+                      )
+                    else
+                      ConstrainedBox(
+                        constraints: const BoxConstraints(maxHeight: 300),
+                        child: ListView.builder(
+                          shrinkWrap: true,
+                          itemCount: controller.tracks.length,
+                          itemBuilder: (BuildContext c, int i) {
+                            final BgmTrack t = controller.tracks[i];
+                            final bool active = i == controller.index;
+                            return ListTile(
+                              dense: true,
+                              selected: active,
+                              leading: CoverArt(url: t.cover, size: 36),
+                              title: Text(
+                                t.name,
+                                style: TextStyle(
+                                  color: active
+                                      ? AppColors.gold
+                                      : AppColors.text,
+                                  fontSize: 13,
+                                ),
+                                overflow: TextOverflow.ellipsis,
                               ),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            subtitle: Text(
-                              t.subtitle,
-                              style: TextStyle(
-                                fontSize: 11,
-                                color: t.missing
-                                    ? AppColors.danger
-                                    : AppColors.textFaint,
+                              subtitle: Text(
+                                t.subtitle,
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: t.missing
+                                      ? AppColors.danger
+                                      : AppColors.textFaint,
+                                ),
                               ),
-                            ),
-                            trailing: IconButton(
-                              tooltip: '移出曲单',
-                              icon: const Icon(Icons.close, size: 16),
-                              onPressed: () async {
-                                final OnlineTrack? online = t.online;
-                                await controller.removeTrack(i);
-                                if (online != null) {
-                                  state.removeOnlineTrack(online.id);
-                                }
+                              trailing: IconButton(
+                                tooltip: '移出曲单',
+                                icon: const Icon(Icons.close, size: 16),
+                                onPressed: () async {
+                                  final OnlineTrack? online = t.online;
+                                  await controller.removeTrack(i);
+                                  if (online != null) {
+                                    state.removeOnlineTrack(online.id);
+                                  }
+                                  setLocal(() {});
+                                },
+                              ),
+                              onTap: () async {
+                                await controller.playIndex(i);
                                 setLocal(() {});
                               },
-                            ),
-                            onTap: () async {
-                              await controller.playIndex(i);
-                              setLocal(() {});
-                            },
-                          );
-                        },
+                            );
+                          },
+                        ),
                       ),
+                    const SizedBox(height: 10),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: <Widget>[
+                        OutlinedButton.icon(
+                          onPressed: () async {
+                            final List<PickedBytes> files =
+                                await pickMultipleBytes(
+                                  extensions: <String>[
+                                    'mp3',
+                                    'wav',
+                                    'ogg',
+                                    'm4a',
+                                    'flac',
+                                    'aac',
+                                  ],
+                                  dialogTitle: '选择本地音乐',
+                                );
+                            if (files.isEmpty) return;
+                            final String? msg = await state.addBgmFiles(
+                              files
+                                  .map(
+                                    (PickedBytes f) =>
+                                        (name: f.name, bytes: f.bytes),
+                                  )
+                                  .toList(),
+                            );
+                            if (ctx.mounted && msg != null) {
+                              ScaffoldMessenger.of(ctx)
+                                  .showSnackBar(SnackBar(content: Text(msg)));
+                            }
+                            setLocal(() {});
+                          },
+                          icon: const Icon(
+                            Icons.library_music_outlined,
+                            size: 16,
+                          ),
+                          label: const Text('添加本地音乐'),
+                        ),
+                        FilledButton.icon(
+                          onPressed: () async {
+                            Navigator.pop(ctx);
+                            await showRadioDialog(context, state);
+                          },
+                          icon: const Icon(
+                            Icons.travel_explore_rounded,
+                            size: 16,
+                          ),
+                          label: const Text('在线修仙电台'),
+                        ),
+                      ],
                     ),
-                  const SizedBox(height: 10),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: <Widget>[
-                      OutlinedButton.icon(
-                        onPressed: () async {
-                          final List<PickedBytes> files =
-                              await pickMultipleBytes(
-                                extensions: <String>[
-                                  'mp3',
-                                  'wav',
-                                  'ogg',
-                                  'm4a',
-                                  'flac',
-                                  'aac',
-                                ],
-                                dialogTitle: '选择本地音乐',
-                              );
-                          if (files.isEmpty) return;
-                          final String? msg = await state.addBgmFiles(
-                            files
-                                .map(
-                                  (PickedBytes f) =>
-                                      (name: f.name, bytes: f.bytes),
-                                )
-                                .toList(),
-                          );
-                          if (ctx.mounted && msg != null) {
-                            ScaffoldMessenger.of(ctx)
-                                .showSnackBar(SnackBar(content: Text(msg)));
-                          }
-                          setLocal(() {});
-                        },
-                        icon: const Icon(
-                          Icons.library_music_outlined,
-                          size: 16,
-                        ),
-                        label: const Text('添加本地音乐'),
-                      ),
-                      FilledButton.icon(
-                        onPressed: () async {
-                          Navigator.pop(ctx);
-                          await showRadioDialog(context, state);
-                        },
-                        icon: const Icon(
-                          Icons.travel_explore_rounded,
-                          size: 16,
-                        ),
-                        label: const Text('在线修仙电台'),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                  Row(
-                    children: <Widget>[
-                      Expanded(
-                        child: TextField(
-                          controller: nameController,
-                          decoration: const InputDecoration(
-                            hintText: '输入文件名（如 bgm1.mp3）',
-                            isDense: true,
+                    const SizedBox(height: 10),
+                    Row(
+                      children: <Widget>[
+                        Expanded(
+                          child: TextField(
+                            controller: nameController,
+                            decoration: const InputDecoration(
+                              hintText: '输入文件名（如 bgm1.mp3）',
+                              isDense: true,
+                            ),
                           ),
                         ),
-                      ),
-                      const SizedBox(width: 8),
-                      OutlinedButton(
-                        onPressed: () async {
-                          final String name = nameController.text.trim();
-                          if (name.isEmpty) return;
-                          if (state.addBgmName(name)) {
-                            await state.bgm.addByName(name);
-                          }
-                          nameController.clear();
-                          setLocal(() {});
-                        },
-                        child: const Text('添加'),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    state.bgm.storageSupported
-                        ? '提示：本地音乐会复制到应用数据目录并随存档记录。'
-                        : '提示：浏览器版本只能播放本次会话添加的音乐。',
-                    style: const TextStyle(
-                      color: AppColors.textFaint,
-                      fontSize: 11,
-                      height: 1.6,
+                        const SizedBox(width: 8),
+                        OutlinedButton(
+                          onPressed: () async {
+                            final String name = nameController.text.trim();
+                            if (name.isEmpty) return;
+                            if (state.addBgmName(name)) {
+                              await state.bgm.addByName(name);
+                            }
+                            nameController.clear();
+                            setLocal(() {});
+                          },
+                          child: const Text('添加'),
+                        ),
+                      ],
                     ),
-                  ),
-                ],
+                    const SizedBox(height: 8),
+                    Text(
+                      state.bgm.storageSupported
+                          ? '提示：本地音乐会复制到应用数据目录并随存档记录。'
+                          : '提示：浏览器版本只能播放本次会话添加的音乐。',
+                      style: const TextStyle(
+                        color: AppColors.textFaint,
+                        fontSize: 11,
+                        height: 1.6,
+                      ),
+                    ),
+                  ],
+                ),
               ),
+              actions: <Widget>[
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('关闭'),
+                ),
+              ],
             ),
-            actions: <Widget>[
-              TextButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: const Text('关闭'),
-              ),
-            ],
           );
         },
       ),
