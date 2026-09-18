@@ -71,6 +71,9 @@ class BgmController extends ChangeNotifier {
   String? _lastError;
   Duration _duration = Duration.zero;
   Duration _position = Duration.zero;
+  Timer? _ticker;
+  DateTime _lastTickAt = DateTime.fromMillisecondsSinceEpoch(0);
+  DateTime _lastPositionReportAt = DateTime.fromMillisecondsSinceEpoch(0);
   bool _resolving = false;
 
   List<BgmTrack> get tracks => List<BgmTrack>.unmodifiable(_tracks);
@@ -124,11 +127,12 @@ class BgmController extends ChangeNotifier {
     final AudioPlayer player = _player!;
     player.onPlayerComplete.listen((_) => unawaited(next(auto: true)));
     player.onDurationChanged.listen((Duration d) {
-      _duration = d;
+      if (d.inMilliseconds > 0) _duration = d;
       notifyListeners();
     });
     player.onPositionChanged.listen((Duration p) {
       _position = p;
+      _lastPositionReportAt = DateTime.now();
       notifyListeners();
     });
     player.onPlayerStateChanged.listen((PlayerState s) {
@@ -142,7 +146,39 @@ class BgmController extends ChangeNotifier {
     _audioAvailable = false;
     _lastError = '当前环境不支持音频播放';
     _playing = false;
+    _stopTicker();
     notifyListeners();
+  }
+
+  /// 本地进度兜底：某些后端（在线流 / Media Foundation）不上报 position，
+  /// 这时按真实时间推进进度条，保证界面一直在动。
+  void _startTicker() {
+    if (_ticker != null) {
+      _lastTickAt = DateTime.now();
+      return;
+    }
+    _lastTickAt = DateTime.now();
+    _ticker = Timer.periodic(const Duration(milliseconds: 500), (_) {
+      if (!_playing) return;
+      final DateTime now = DateTime.now();
+      // 后端 1.2 秒内报过进度就交给它，避免两次推进叠加
+      if (now.difference(_lastPositionReportAt).inMilliseconds < 1200) {
+        _lastTickAt = now;
+        return;
+      }
+      final Duration delta = now.difference(_lastTickAt);
+      _lastTickAt = now;
+      final Duration total = effectiveDuration;
+      Duration next = _position + delta;
+      if (total.inMilliseconds > 0 && next > total) next = total;
+      _position = next;
+      notifyListeners();
+    });
+  }
+
+  void _stopTicker() {
+    _ticker?.cancel();
+    _ticker = null;
   }
 
   /// 依据存档重建曲单：本地曲目 → 在线曲目 → 会话曲目。
@@ -366,6 +402,11 @@ class BgmController extends ChangeNotifier {
       }
       _playing = autoplay;
       _lastError = null;
+      if (_playing) {
+        _startTicker();
+      } else {
+        _stopTicker();
+      }
     } catch (e) {
       _resolving = false;
       _playing = false;
@@ -383,6 +424,7 @@ class BgmController extends ChangeNotifier {
         // 忽略
       }
       _playing = false;
+      _stopTicker();
       notifyListeners();
     } else {
       await loadCurrent(autoplay: true);
@@ -442,6 +484,7 @@ class BgmController extends ChangeNotifier {
     }
     _playing = false;
     _position = Duration.zero;
+    _stopTicker();
     notifyListeners();
   }
 
@@ -458,6 +501,7 @@ class BgmController extends ChangeNotifier {
 
   @override
   void dispose() {
+    _stopTicker();
     final AudioPlayer? player = _player;
     _player = null;
     if (player != null) unawaited(player.dispose());
