@@ -101,6 +101,8 @@ class _AppShellState extends State<AppShell> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       // 尊重「启动自动播放」开关：曲单为空时自动挑选仙侠电台
       unawaited(state.autoStartBgm());
+      // 尊重「在线背景」开关：联网换一张仙侠背景（失败静默）
+      unawaited(state.maybeAutoFetchBackground());
     });
   }
 

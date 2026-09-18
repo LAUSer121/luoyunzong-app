@@ -6,10 +6,12 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../core/constants.dart';
+import '../core/image_utils.dart';
 import '../core/parsers.dart';
 import '../data/archive_codec.dart';
 import '../data/local_repository.dart';
 import '../data/netease_client.dart';
+import '../data/wallpaper_client.dart';
 import '../domain/models.dart';
 import '../domain/repository.dart';
 import 'bgm_controller.dart';
@@ -26,6 +28,9 @@ class AppState extends ChangeNotifier {
 
   /// 网易云在线搜索客户端（可在设置里配置代理地址，解决 Web 端跨域）。
   NeteaseClient netease = NeteaseClient();
+
+  /// 在线仙侠背景客户端（Wallhaven / Picsum）。
+  final WallpaperClient wallpapers = WallpaperClient();
 
   Archive archive;
 
@@ -629,17 +634,59 @@ class AppState extends ChangeNotifier {
   // ------------------------------------------------------------------
 
   void setBackgroundPreset(String key) => mutate(
-    (Archive a) =>
-        a.background = BackgroundSetting(type: BgType.preset, key: key),
+    (Archive a) => a.background = BackgroundSetting(
+      type: BgType.preset,
+      key: key,
+      autoOnline: a.background.autoOnline,
+    ),
   );
 
   void setBackgroundImage(String dataUrl) => mutate(
-    (Archive a) =>
-        a.background = BackgroundSetting(type: BgType.image, data: dataUrl),
+    (Archive a) => a.background = BackgroundSetting(
+      type: BgType.image,
+      data: dataUrl,
+      autoOnline: a.background.autoOnline,
+    ),
   );
 
-  void resetBackground() =>
-      mutate((Archive a) => a.background = BackgroundSetting.defaults());
+  void resetBackground() => mutate(
+    (Archive a) =>
+        a.background = BackgroundSetting(autoOnline: a.background.autoOnline),
+  );
+
+  /// 启动时自动获取在线背景的开关。
+  void setAutoOnlineBackground(bool value) => mutate(
+    (Archive a) => a.background = a.background.copyWith(autoOnline: value),
+  );
+
+  /// 从网上随机拉一张仙侠背景并应用；成功返回 `null`，失败返回错误文案。
+  ///
+  /// 图源顺序：Wallhaven → 必应图片搜索 → 必应每日壁纸 → Picsum（见 WallpaperClient）。
+  Future<String?> fetchOnlineBackground({String? query}) async {
+    final WallpaperPick? pick = await wallpapers.pick(query: query);
+    if (pick == null) return '没有获取到在线背景（网络或图源限制）';
+    final String? dataUrl = compressImageToDataUrl(
+      pick.bytes,
+      maxWidth: kBackgroundMaxWidth,
+      quality: kImageQuality,
+    );
+    if (dataUrl == null) return '背景图片解析失败';
+    mutate(
+      (Archive a) => a.background = BackgroundSetting(
+        type: BgType.image,
+        data: dataUrl,
+        credit: pick.wallpaper.credit,
+        autoOnline: a.background.autoOnline,
+      ),
+    );
+    return null;
+  }
+
+  /// 启动时按开关自动换一张在线背景（失败静默，不打扰启动流程）。
+  Future<void> maybeAutoFetchBackground() async {
+    if (!archive.background.autoOnline) return;
+    await fetchOnlineBackground();
+  }
 
   void setBgmVolume(double volume) =>
       mutate((Archive a) => a.bgm.volume = volume.clamp(0, 1).toDouble());

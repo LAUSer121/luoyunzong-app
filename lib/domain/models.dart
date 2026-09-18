@@ -459,24 +459,35 @@ class BgmSetting {
 enum BgType { preset, image }
 
 class BackgroundSetting {
-  BackgroundSetting({this.type, this.key, this.data})
-    : assert(type != BgType.preset || key != null, '预设背景必须带 key');
+  BackgroundSetting({
+    this.type,
+    this.key,
+    this.data,
+    this.credit = '',
+    this.autoOnline = false,
+  }) : assert(type != BgType.preset || key != null, '预设背景必须带 key');
 
   factory BackgroundSetting.fromJson(Map<String, Object?> json) {
     final String t = _asString(json['type'], 'default');
+    final String credit = _asString(json['credit']);
+    final bool autoOnline = _asBool(json['autoOnline']);
     if (t == 'preset') {
       return BackgroundSetting(
         type: BgType.preset,
         key: _asString(json['key']),
+        credit: credit,
+        autoOnline: autoOnline,
       );
     }
     if (t == 'image') {
       return BackgroundSetting(
         type: BgType.image,
         data: _nullIfEmpty(json['data']),
+        credit: credit,
+        autoOnline: autoOnline,
       );
     }
-    return BackgroundSetting.defaults();
+    return BackgroundSetting(credit: credit, autoOnline: autoOnline);
   }
 
   factory BackgroundSetting.defaults() => BackgroundSetting();
@@ -485,22 +496,49 @@ class BackgroundSetting {
   final String? key;
   final String? data;
 
+  /// 图片来源（在线背景会写入作者与页面地址，便于署名）。
+  final String credit;
+
+  /// 启动时是否自动从网上获取一张仙侠背景。
+  final bool autoOnline;
+
   bool get isDefault => type == null;
 
   String get label {
     if (type == BgType.preset) return presetByKey(key)?.name ?? '预设风格';
-    if (type == BgType.image) return '自定义图片';
+    if (type == BgType.image) return credit.isEmpty ? '自定义图片' : '在线背景';
     return '默认背景';
   }
 
+  BackgroundSetting copyWith({
+    BgType? type,
+    String? key,
+    String? data,
+    String? credit,
+    bool? autoOnline,
+    bool clearImage = false,
+  }) {
+    return BackgroundSetting(
+      type: type,
+      key: key ?? this.key,
+      data: clearImage ? null : (data ?? this.data),
+      credit: credit ?? this.credit,
+      autoOnline: autoOnline ?? this.autoOnline,
+    );
+  }
+
   Map<String, Object?> toJson() {
+    final Map<String, Object?> base = <String, Object?>{
+      'credit': credit,
+      'autoOnline': autoOnline,
+    };
     if (type == BgType.preset) {
-      return <String, Object?>{'type': 'preset', 'key': key};
+      return <String, Object?>{...base, 'type': 'preset', 'key': key};
     }
     if (type == BgType.image) {
-      return <String, Object?>{'type': 'image', 'data': data};
+      return <String, Object?>{...base, 'type': 'image', 'data': data};
     }
-    return <String, Object?>{'type': 'default'};
+    return <String, Object?>{...base, 'type': 'default'};
   }
 }
 

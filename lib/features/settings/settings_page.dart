@@ -13,6 +13,7 @@ import '../../core/image_utils.dart';
 import '../../core/theme.dart';
 import '../../data/api_client.dart';
 import '../../data/settings_store.dart';
+import '../../data/wallpaper_client.dart';
 import '../../domain/models.dart';
 import '../../state/app_state.dart';
 import '../../widgets/admin_bar.dart';
@@ -35,6 +36,7 @@ class _SettingsPageState extends State<SettingsPage> {
   bool _storagePathRequested = false;
   String? _apiStatus;
   bool _apiBusy = false;
+  bool _bgBusy = false;
   bool _loadedSettings = false;
 
   @override
@@ -259,39 +261,91 @@ class _SettingsPageState extends State<SettingsPage> {
             children: <Widget>[
               OutlinedButton.icon(
                 onPressed: state.unlocked
-                    ? () async {
-                        final PickedBytes? picked = await pickBytes(
-                          extensions: <String>[
-                            'png',
-                            'jpg',
-                            'jpeg',
-                            'webp',
-                            'bmp',
-                          ],
-                          dialogTitle: '选择背景图片',
-                        );
-                        if (picked == null) return;
-                        final String? data = compressImageToDataUrl(
-                          picked.bytes,
-                          maxWidth: kBackgroundMaxWidth,
-                          quality: 85,
-                        );
-                        if (data == null) {
-                          _toast('图片读取失败');
-                          return;
-                        }
-                        state.setBackgroundImage(data);
-                        _toast('背景已更换');
-                      }
+                    ? () => _pickLocalBackground(state)
                     : null,
                 icon: const Icon(Icons.wallpaper_outlined, size: 18),
                 label: const Text('选择本地图片'),
               ),
+              FilledButton.icon(
+                onPressed: _bgBusy ? null : () => _fetchOnlineBackground(state),
+                icon: const Icon(Icons.travel_explore_rounded, size: 18),
+                label: Text(_bgBusy ? '正在获取…' : '换一张在线仙侠背景'),
+              ),
             ],
           ),
+          const SizedBox(height: 6),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            value: archive.background.autoOnline,
+            onChanged: state.setAutoOnlineBackground,
+            title: const Text('启动时自动获取在线仙侠背景', style: TextStyle(fontSize: 14)),
+            subtitle: const Text(
+              '每次打开应用联网换一张（水墨山水 / 云雾仙山 / 古刹 / 江湖 等标签随机）',
+              style: TextStyle(fontSize: 12, color: AppColors.textFaint),
+            ),
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            '想指定题材就点下面标签直接换：',
+            style: TextStyle(color: AppColors.textMuted, fontSize: 12),
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: WallpaperClient.presetQueries
+                .map(
+                  (String tag) => ActionChip(
+                    label: Text(tag, style: const TextStyle(fontSize: 12)),
+                    onPressed: _bgBusy
+                        ? null
+                        : () => _fetchOnlineBackground(state, query: tag),
+                  ),
+                )
+                .toList(),
+          ),
+          if (archive.background.credit.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 10),
+              child: Text(
+                archive.background.credit,
+                style: const TextStyle(
+                  color: AppColors.textFaint,
+                  fontSize: 11,
+                  height: 1.6,
+                ),
+              ),
+            ),
         ],
       ),
     );
+  }
+
+  Future<void> _pickLocalBackground(AppState state) async {
+    final PickedBytes? picked = await pickBytes(
+      extensions: <String>['png', 'jpg', 'jpeg', 'webp', 'bmp'],
+      dialogTitle: '选择背景图片',
+    );
+    if (picked == null) return;
+    final String? data = compressImageToDataUrl(
+      picked.bytes,
+      maxWidth: kBackgroundMaxWidth,
+      quality: 85,
+    );
+    if (data == null) {
+      _toast('图片读取失败');
+      return;
+    }
+    state.setBackgroundImage(data);
+    _toast('背景已更换');
+  }
+
+  Future<void> _fetchOnlineBackground(AppState state, {String? query}) async {
+    setState(() => _bgBusy = true);
+    final String? error = await state.fetchOnlineBackground(query: query);
+    if (!mounted) return;
+    setState(() => _bgBusy = false);
+    _toast(error ?? '已换上一张在线仙侠背景');
   }
 
   Widget _bgOption({
