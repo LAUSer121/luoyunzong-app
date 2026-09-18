@@ -33,61 +33,66 @@ class AppBackground extends StatelessWidget {
         ? <Color>[Color(preset.beginColor), Color(preset.endColor)]
         : <Color>[const Color(0xFF0B1734), AppColors.backdrop];
 
-    return Stack(
-      fit: StackFit.expand,
-      children: <Widget>[
-        DecoratedBox(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: colors,
-            ),
-          ),
-        ),
-        if (preset != null)
-          Positioned.fill(
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: RadialGradient(
-                  center: const Alignment(-0.5, -0.4),
-                  radius: 1.1,
-                  colors: <Color>[Color(preset.glowA), Colors.transparent],
-                ),
+    return ClipRect(
+      child: Stack(
+        fit: StackFit.expand,
+        children: <Widget>[
+          DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: colors,
               ),
             ),
           ),
-        if (preset != null)
-          Positioned.fill(
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: RadialGradient(
-                  center: const Alignment(0.6, 0.55),
-                  radius: 1.0,
-                  colors: <Color>[Color(preset.glowB), Colors.transparent],
+          if (preset != null)
+            Positioned.fill(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: RadialGradient(
+                    center: const Alignment(-0.5, -0.4),
+                    radius: 1.1,
+                    colors: <Color>[Color(preset.glowA), Colors.transparent],
+                  ),
                 ),
               ),
             ),
-          ),
-        if (imageBytes != null)
-          Positioned.fill(
-            child: Image.memory(
-              imageBytes,
-              fit: BoxFit.cover,
-              gaplessPlayback: true,
-              errorBuilder: (_, _, _) => const SizedBox.shrink(),
+          if (preset != null)
+            Positioned.fill(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: RadialGradient(
+                    center: const Alignment(0.6, 0.55),
+                    radius: 1.0,
+                    colors: <Color>[Color(preset.glowB), Colors.transparent],
+                  ),
+                ),
+              ),
             ),
+          if (imageBytes != null)
+            Positioned.fill(
+              child: Image.memory(
+                imageBytes,
+                fit: BoxFit.cover,
+                gaplessPlayback: true,
+                errorBuilder: (_, _, _) => const SizedBox.shrink(),
+              ),
+            ),
+          if (imageBytes != null || preset != null)
+            const Positioned.fill(child: ColoredBox(color: Color(0x66060C18))),
+          // 光晕用 Align 定位：不参与 Stack 尺寸计算，避免把页面撑出横向滚动条。
+          const Align(
+            alignment: Alignment(-1.55, -1.55),
+            child: _MagicGlow(size: 320),
           ),
-        if (imageBytes != null || preset != null)
-          const Positioned.fill(child: ColoredBox(color: Color(0x66060C18))),
-        const Positioned(top: -120, left: -80, child: _MagicGlow(size: 320)),
-        const Positioned(
-          bottom: -140,
-          right: -60,
-          child: _MagicGlow(size: 380),
-        ),
-        child,
-      ],
+          const Align(
+            alignment: Alignment(1.45, 1.45),
+            child: _MagicGlow(size: 380),
+          ),
+          child,
+        ],
+      ),
     );
   }
 
