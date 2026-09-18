@@ -1,6 +1,7 @@
 /// 主题与视觉规范：深空青金 + Material 3。
 library;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 /// 主色板（沿用旧版配色，明度微调以适配 Material 3）。
@@ -77,28 +78,55 @@ ThemeData buildAppTheme() {
     platform: TargetPlatform.android,
   ).white;
 
-  // 中文字形优先用「中文字体」显式指定，避免 Flutter 默认回退到日文字体，
-  // 导致「户/门/直/真」等字形的点画变成竖画（这正是旧版换成 Flutter 后最先看出来的差异）。
-  const List<String> cjkSans = <String>[
-    'Microsoft YaHei UI',
-    'Microsoft YaHei',
-    'PingFang SC',
-    'Hiragino Sans GB',
-    'Noto Sans CJK SC',
-    'Source Han Sans SC',
-    'WenQuanYi Micro Hei',
-    'SimHei',
-    'sans-serif',
-  ];
-  const List<String> cjkSerif = <String>[
-    'KaiTi',
-    'STKaiti',
-    '楷体',
-    'Songti SC',
-    'SimSun',
-    'Noto Serif CJK SC',
-    'serif',
-  ];
+  // 使用「系统自带字体」并显式给出中文栈：Windows 走微软雅黑，macOS 走苹方/系统默认，
+  // 这样既符合各平台观感，也避免 Flutter 默认回退到日文字体把「点」画成竖画。
+  final List<String> cjkSans = switch (defaultTargetPlatform) {
+    TargetPlatform.windows => const <String>[
+      'Microsoft YaHei UI',
+      'Microsoft YaHei',
+      'SimHei',
+      'SimSun',
+      'serif',
+    ],
+    TargetPlatform.macOS => const <String>[
+      'PingFang SC',
+      'Hiragino Sans GB',
+      'Heiti SC',
+      'STHeiti',
+      'sans-serif',
+    ],
+    TargetPlatform.iOS => const <String>[
+      'PingFang SC',
+      'Heiti SC',
+      'sans-serif',
+    ],
+    TargetPlatform.android => const <String>[
+      'Noto Sans CJK SC',
+      'Source Han Sans SC',
+      'sans-serif',
+    ],
+    TargetPlatform.linux => const <String>[
+      'Noto Sans CJK SC',
+      'Source Han Sans SC',
+      'WenQuanYi Micro Hei',
+      'sans-serif',
+    ],
+    _ => const <String>[
+      'Microsoft YaHei UI',
+      'Microsoft YaHei',
+      'PingFang SC',
+      'Hiragino Sans GB',
+      'Noto Sans CJK SC',
+      'Source Han Sans SC',
+      'WenQuanYi Micro Hei',
+      'sans-serif',
+    ],
+  };
+
+  /// 主字体：Windows 用微软雅黑，其余平台交给系统默认（再由 fallback 兜中文）。
+  final String? primary = defaultTargetPlatform == TargetPlatform.windows
+      ? 'Microsoft YaHei UI'
+      : null;
 
   TextStyle? sans(
     TextStyle? s, {
@@ -110,6 +138,7 @@ ThemeData buildAppTheme() {
       color: color,
       letterSpacing: letterSpacing,
       fontWeight: weight,
+      fontFamily: primary,
       fontFamilyFallback: cjkSans,
     );
   }
@@ -118,6 +147,7 @@ ThemeData buildAppTheme() {
     useMaterial3: true,
     colorScheme: scheme,
     scaffoldBackgroundColor: AppColors.backdrop,
+    fontFamily: primary,
     fontFamilyFallback: cjkSans,
     textTheme: base.copyWith(
       displaySmall: sans(
@@ -132,12 +162,10 @@ ThemeData buildAppTheme() {
         weight: FontWeight.w600,
       ),
       headlineSmall: sans(base.headlineSmall, color: AppColors.gold),
-      // 大标题用楷体（与旧版视觉一致），正文字体走无衬线中文栈
-      titleLarge: base.titleLarge?.copyWith(
+      titleLarge: sans(
+        base.titleLarge,
         color: AppColors.gold,
         letterSpacing: 1.5,
-        fontFamily: null,
-        fontFamilyFallback: cjkSerif,
       ),
       titleMedium: sans(base.titleMedium, color: AppColors.text),
       titleSmall: sans(base.titleSmall, color: AppColors.textMuted),
