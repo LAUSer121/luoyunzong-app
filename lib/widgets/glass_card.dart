@@ -19,11 +19,11 @@ class GlassCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return DecoratedBox(
+    // 背景色交给 Material：这样卡片内部的 ListTile / InkWell 水波纹才可见，
+    // 也避免 Flutter 关于「DecoratedBox 遮挡 ListTile 背景」的断言。
+    return Container(
       decoration: BoxDecoration(
-        color: AppColors.surfaceHigh.withValues(alpha: 0.78),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.outline),
         boxShadow: <BoxShadow>[
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.35),
@@ -32,16 +32,27 @@ class GlassCard extends StatelessWidget {
           ),
         ],
       ),
-      child: Stack(
-        children: <Widget>[
-          if (ornament)
-            const Positioned.fill(
-              child: IgnorePointer(
-                child: CustomPaint(painter: _CornerOrnamentPainter()),
-              ),
-            ),
-          Padding(padding: padding, child: child),
-        ],
+      child: Material(
+        color: AppColors.surfaceHigh.withValues(alpha: 0.78),
+        borderRadius: BorderRadius.circular(16),
+        clipBehavior: Clip.antiAlias,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: AppColors.outline),
+          ),
+          child: Stack(
+            children: <Widget>[
+              if (ornament)
+                const Positioned.fill(
+                  child: IgnorePointer(
+                    child: CustomPaint(painter: _CornerOrnamentPainter()),
+                  ),
+                ),
+              Padding(padding: padding, child: child),
+            ],
+          ),
+        ),
       ),
     );
   }

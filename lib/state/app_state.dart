@@ -69,7 +69,12 @@ class AppState extends ChangeNotifier {
       notifyListeners();
     }
     bgm.bindPlayerEvents();
-    await bgm.syncFromArchive(archive);
+    // BGM 是附带能力：不阻塞启动，出错也不影响数据加载（各平台行为一致）。
+    unawaited(
+      bgm
+          .syncFromArchive(archive)
+          .catchError((Object _) => bgm.markUnavailable()),
+    );
   }
 
   /// 立即保存（忽略防抖）。
@@ -340,6 +345,14 @@ class AppState extends ChangeNotifier {
 
   void setTowerChampion(String name) {
     mutate((Archive a) {
+      // 换榜首时先摘掉原榜首的荣誉职衔，保证同一时间只有一位
+      final List<String> previous = <String>[
+        for (final TowerRecord t in a.towerList)
+          if (t.isChampion && t.name != name) t.name,
+      ];
+      for (final String prev in previous) {
+        a.memberByName(prev)?.subRoles.remove(kChampionTitle);
+      }
       for (final TowerRecord t in a.towerList) {
         t.isChampion = t.name == name;
       }

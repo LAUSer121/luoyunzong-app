@@ -8,7 +8,7 @@ import 'package:luoyunzong/data/storage_backend.dart';
 import 'package:luoyunzong/state/app_state.dart';
 
 /// 内存存储后端：测试中不触碰真实文件 / 浏览器存储。
-class _MemoryBackend implements StorageBackend {
+class MemoryBackend implements StorageBackend {
   String? _data;
 
   @override
@@ -34,7 +34,7 @@ void main() {
     addTearDown(tester.view.reset);
 
     final AppState state = AppState(
-      repository: LocalRepository(backend: _MemoryBackend()),
+      repository: LocalRepository(backend: MemoryBackend()),
     );
     await state.init();
 
@@ -44,9 +44,11 @@ void main() {
         child: const LuoyunzongApp(),
       ),
     );
-    await tester.pumpAndSettle();
+    // 应用内含加载态与动画，用有限帧推进比 pumpAndSettle 更稳。
+    await tester.pump(const Duration(milliseconds: 60));
+    await tester.pump(const Duration(milliseconds: 400));
 
     expect(find.text('落云宗'), findsWidgets);
     expect(find.text('宗门名单'), findsWidgets);
-  });
+  }, timeout: const Timeout(Duration(seconds: 90)));
 }

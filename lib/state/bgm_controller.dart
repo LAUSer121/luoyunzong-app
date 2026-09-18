@@ -1,4 +1,7 @@
 /// BGM 播放控制器：曲单来自存档（长期曲目）+ 本次会话曲目。
+///
+/// 音频后端（audioplayers）采用惰性创建：在没有平台插件的环境（单元测试、
+/// 精简桌面环境）里只标记不可用，不让应用启动失败。
 library;
 
 import 'dart:async';
@@ -6,8 +9,8 @@ import 'dart:async';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/foundation.dart';
 
-import '../domain/models.dart';
 import '../data/bgm_store.dart';
+import '../domain/models.dart';
 
 class BgmTrack {
   BgmTrack({
@@ -29,7 +32,9 @@ class BgmTrack {
 class BgmController extends ChangeNotifier {
   BgmController();
 
-  final AudioPlayer _player = AudioPlayer();
+  AudioPlayer? _player;
+  bool _audioAvailable = true;
+  bool _eventsBound = false;
 
   final List<BgmTrack> _tracks = <BgmTrack>[];
   int _index = 0;
@@ -43,10 +48,43 @@ class BgmController extends ChangeNotifier {
   double get volume => _volume;
   bool get playing => _playing;
   String? get lastError => _lastError;
+  bool get audioAvailable => _audioAvailable;
   BgmTrack? get current =>
       (_index >= 0 && _index < _tracks.length) ? _tracks[_index] : null;
   String get title => current?.name ?? '未选择音乐';
   bool get storageSupported => bgmStorageSupported;
+
+  /// 惰性获取播放器；平台不支持时返回 `null`。
+  AudioPlayer? _ensurePlayer() {
+    if (!_audioAvailable) return null;
+    if (_player != null) {
+      _bindEvents();
+      return _player;
+    }
+    try {
+      _player = AudioPlayer();
+      _bindEvents();
+      return _player;
+    } catch (_) {
+      _audioAvailable = false;
+      _lastError = '当前环境不支持音频播放';
+      return null;
+    }
+  }
+
+  void _bindEvents() {
+    if (_eventsBound || _player == null) return;
+    _eventsBound = true;
+    _player!.onPlayerComplete.listen((_) => unawaited(next(auto: true)));
+  }
+
+  /// 平台不支持音频（如单元测试、无音频后端的环境）时标记不可用。
+  void markUnavailable() {
+    _audioAvailable = false;
+    _lastError = '当前环境不支持音频播放';
+    _playing = false;
+    notifyListeners();
+  }
 
   /// 依据存档重建曲单（存档里保存的是「长期曲目」文件名）。
   ///
@@ -63,7 +101,14 @@ class BgmController extends ChangeNotifier {
       ..addAll(sessionTracks);
 
     _volume = archive.bgm.volume;
-    await _player.setVolume(_volume);
+    final AudioPlayer? player = _ensurePlayer();
+    if (player != null) {
+      try {
+        await player.setVolume(_volume);
+      } catch (_) {
+        _audioAvailable = false;
+      }
+    }
 
     for (final BgmTrack t in _tracks) {
       if (!t.sessionOnly) {
@@ -85,20 +130,19 @@ class BgmController extends ChangeNotifier {
       final String? path = await storeAudioFile(f.name, f.bytes);
       if (path != null) {
         _tracks.add(BgmTrack(name: f.name, path: path));
-        addedNames.add(f.name);
       } else {
         _tracks.add(BgmTrack(name: f.name, bytes: f.bytes, sessionOnly: true));
-        addedNames.add(f.name);
       }
+      addedNames.add(f.name);
     }
-    if (_player.source == null && _tracks.isNotEmpty) {
+    if (_tracks.isNotEmpty && _playing == false && _index >= _tracks.length) {
       _index = _tracks.length - 1;
     }
     notifyListeners();
     return '已添加 ${addedNames.length} 首音乐';
   }
 
-  /// 由曲单列表（长期曲目）同步一次，返回新增曲目名。
+  /// 由文件名加入曲单（长期曲目）。
   Future<List<String>> addByName(String name) async {
     final String trimmed = name.trim();
     if (trimmed.isEmpty) return <String>[];
@@ -133,16 +177,23 @@ class BgmController extends ChangeNotifier {
       notifyListeners();
       return;
     }
+    final AudioPlayer? player = _ensurePlayer();
+    if (player == null) {
+      _playing = false;
+      notifyListeners();
+      return;
+    }
+    if (t.path == null && t.bytes == null) {
+      t.missing = true;
+      _lastError = '未找到音乐文件：${t.name}';
+      notifyListeners();
+      return;
+    }
     try {
       if (t.path != null) {
-        await _player.play(DeviceFileSource(t.path!), volume: _volume);
-      } else if (t.bytes != null) {
-        await _player.play(BytesSource(t.bytes!), volume: _volume);
+        await player.play(DeviceFileSource(t.path!), volume: _volume);
       } else {
-        t.missing = true;
-        _lastError = '未找到音乐文件：${t.name}';
-        notifyListeners();
-        return;
+        await player.play(BytesSource(t.bytes!), volume: _volume);
       }
       _playing = autoplay;
       _lastError = null;
@@ -156,7 +207,11 @@ class BgmController extends ChangeNotifier {
   Future<void> toggle() async {
     if (_tracks.isEmpty) return;
     if (_playing) {
-      await _player.pause();
+      try {
+        await _player?.pause();
+      } catch (_) {
+        // 忽略
+      }
       _playing = false;
       notifyListeners();
     } else {
@@ -184,12 +239,23 @@ class BgmController extends ChangeNotifier {
 
   Future<void> setVolume(double v) async {
     _volume = v.clamp(0, 1).toDouble();
-    await _player.setVolume(_volume);
+    final AudioPlayer? player = _ensurePlayer();
+    if (player != null) {
+      try {
+        await player.setVolume(_volume);
+      } catch (_) {
+        _audioAvailable = false;
+      }
+    }
     notifyListeners();
   }
 
   Future<void> stop() async {
-    await _player.stop();
+    try {
+      await _player?.stop();
+    } catch (_) {
+      // 忽略
+    }
     _playing = false;
     notifyListeners();
   }
@@ -200,17 +266,16 @@ class BgmController extends ChangeNotifier {
     _started = true;
     if (_tracks.isEmpty) return;
     await loadCurrent(autoplay: true);
-    if (!_playing) _playing = false;
     notifyListeners();
   }
 
-  void bindPlayerEvents() {
-    _player.onPlayerComplete.listen((_) => unawaited(next(auto: true)));
-  }
+  void bindPlayerEvents() => _ensurePlayer();
 
   @override
   void dispose() {
-    unawaited(_player.dispose());
+    final AudioPlayer? player = _player;
+    _player = null;
+    if (player != null) unawaited(player.dispose());
     super.dispose();
   }
 }
