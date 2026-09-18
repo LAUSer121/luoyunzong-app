@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    便携版单文件启动器：编译成一个自包含的 Windows exe（无需用户安装 .NET），
+    再把 Flutter 发布目录的 zip 载荷附加到文件尾部，双击即解压并启动。
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>luoyunzong-portable-stub</AssemblyName>
+    <RootNamespace>Luoyunzong.Portable</RootNamespace>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <DebugType>none</DebugType>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <Version>1.0.0</Version>
+    <AssemblyTitle>落云宗 · 宗门管理（便携版）</AssemblyTitle>
+    <Product>落云宗 · 宗门管理</Product>
+  </PropertyGroup>
+
+</Project>

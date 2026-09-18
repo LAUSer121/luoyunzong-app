@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       upload_release:
-        description: '把本次构建产物发布为 Release（仅在 tag 触发时自动执行）'
+        description: '把本次构建产物发布为 Release'
         type: boolean
         default: false
 
@@ -18,7 +18,9 @@ env:
 
 jobs:
   # ------------------------------------------------------------------
-  # 1) 桌面端：Windows / macOS / Linux
+  # 1) 桌面端：Windows / macOS / Linux —— 每个平台一个「单文件便携版」
+  #    Windows: luoyunzong-portable.exe   Linux: luoyunzong-portable.run
+  #    macOS:   luoyunzong-macos.dmg
   # ------------------------------------------------------------------
   desktop:
     name: Desktop ${{ matrix.target }}
@@ -29,16 +31,16 @@ jobs:
         include:
           - os: windows-latest
             target: windows
-            artifact: luoyunzong-windows
-            path: build/windows/x64/runner/Release/
+            artifact: luoyunzong-windows-portable
+            file: dist/luoyunzong-portable.exe
           - os: macos-latest
             target: macos
-            artifact: luoyunzong-macos
-            path: build/macos/Build/Products/Release/*.app
+            artifact: luoyunzong-macos-dmg
+            file: dist/luoyunzong-macos.dmg
           - os: ubuntu-latest
             target: linux
-            artifact: luoyunzong-linux
-            path: build/linux/x64/release/bundle/
+            artifact: luoyunzong-linux-portable
+            file: dist/luoyunzong-portable.run
     steps:
       - uses: actions/checkout@v4
 
@@ -52,7 +54,8 @@ jobs:
         if: matrix.target == 'linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build libgtk-3-dev liblzma-dev pkg-config clang cmake mpv libmpv-dev
+          sudo apt-get install -y ninja-build libgtk-3-dev liblzma-dev pkg-config clang cmake \
+            libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev mpv libmpv-dev
 
       - name: Enable desktop target
         run: flutter config --enable-${{ matrix.target }}-desktop
@@ -63,38 +66,28 @@ jobs:
       - name: Build ${{ matrix.target }}
         run: flutter build ${{ matrix.target }} --release
 
-      - name: Pack Linux bundle
-        if: matrix.target == 'linux'
-        run: |
-          cd build/linux/x64/release
-          tar -czf "$GITHUB_WORKSPACE/${{ matrix.artifact }}.tar.gz" bundle
-          ls -lh "$GITHUB_WORKSPACE/${{ matrix.artifact }}.tar.gz"
-
-      - name: Pack macOS app
-        if: matrix.target == 'macos'
-        run: |
-          cd build/macos/Build/Products/Release
-          zip -qry "$GITHUB_WORKSPACE/${{ matrix.artifact }}.zip" *.app
-          ls -lh "$GITHUB_WORKSPACE/${{ matrix.artifact }}.zip"
-
-      - name: Upload artifact (Windows)
+      - name: Make portable single-file (Windows)
         if: matrix.target == 'windows'
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.artifact }}
-          path: ${{ matrix.path }}
-          if-no-files-found: error
+        shell: pwsh
+        run: pwsh -File tool/windows_portable.ps1
 
-      - name: Upload artifact (Linux / macOS archive)
-        if: matrix.target != 'windows'
+      - name: Make portable single-file (Linux)
+        if: matrix.target == 'linux'
+        run: bash tool/linux_portable.sh
+
+      - name: Make portable single-file (macOS)
+        if: matrix.target == 'macos'
+        run: bash tool/macos_portable.sh
+
+      - name: Upload single-file artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
-          path: ${{ matrix.artifact }}.*
+          path: ${{ matrix.file }}
           if-no-files-found: error
 
   # ------------------------------------------------------------------
-  # 2) 移动端：Android APK / AAB、iOS 未签名包
+  # 2) 手机端：Android 单文件 APK、iOS 单文件未签名 IPA
   # ------------------------------------------------------------------
   android:
     name: Android
@@ -115,28 +108,22 @@ jobs:
 
       - run: flutter pub get
 
-      - name: Build APK (split per ABI)
-        run: flutter build apk --release --split-per-abi
+      - name: Build APK (single file, all ABIs)
+        run: flutter build apk --release
 
-      - name: Build AAB
-        run: flutter build appbundle --release
-
-      - name: Rename APKs
+      - name: Rename APK
         run: |
-          cd build/app/outputs/flutter-apk
-          for f in app-*-release.apk; do mv "$f" "luoyunzong-${f#app-}"; done
-          ls -lh
+          cp build/app/outputs/flutter-apk/app-release.apk luoyunzong.apk
+          ls -lh luoyunzong.apk
 
       - uses: actions/upload-artifact@v4
         with:
-          name: luoyunzong-android
-          path: |
-            build/app/outputs/flutter-apk/luoyunzong-*.apk
-            build/app/outputs/bundle/release/app-release.aab
+          name: luoyunzong-android-apk
+          path: luoyunzong.apk
           if-no-files-found: error
 
   ios:
-    name: iOS (unsigned)
+    name: iOS (unsigned ipa)
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -152,22 +139,26 @@ jobs:
       - name: Build iOS without codesign
         run: flutter build ios --release --no-codesign
 
-      - name: Package .app
+      - name: Package unsigned .ipa (single file)
         run: |
-          cd build/ios/iphoneos
-          zip -qry "$GITHUB_WORKSPACE/luoyunzong-ios-unsigned.zip" Runner.app
+          rm -rf Payload luoyunzong-unsigned.ipa
+          mkdir -p Payload
+          cp -R build/ios/iphoneos/Runner.app Payload/
+          zip -qry luoyunzong-unsigned.ipa Payload
+          rm -rf Payload
+          ls -lh luoyunzong-unsigned.ipa
 
       - uses: actions/upload-artifact@v4
         with:
-          name: luoyunzong-ios-unsigned
-          path: luoyunzong-ios-unsigned.zip
+          name: luoyunzong-ios-ipa
+          path: luoyunzong-unsigned.ipa
           if-no-files-found: error
 
   # ------------------------------------------------------------------
-  # 3) Web：可静态托管（手机浏览器 / 电脑浏览器直接使用）
+  # 3) 网页版：单文件 HTML（16MB 左右，双击即用，可离线；另可托管）
   # ------------------------------------------------------------------
   web:
-    name: Web
+    name: Web single-file html
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -180,17 +171,26 @@ jobs:
 
       - run: flutter pub get
 
-      - name: Build web
-        run: flutter build web --release --source-maps
+      - name: Build web (bundled CanvasKit, no CDN)
+        run: flutter build web --release --no-web-resources-cdn
+
+      - name: Inline everything into one html
+        run: dart run tool/inline_web.dart build/web dist/luoyunzong.html
+
+      - name: Verify single-file html
+        run: |
+          test -f dist/luoyunzong.html
+          grep -q "LYZ_RESOURCES" dist/luoyunzong.html
+          node -e "const s=require('fs').statSync('dist/luoyunzong.html').size; if(s<5*1024*1024){console.error('html 过小，可能未内联成功');process.exit(1)} console.log('html size MB:', (s/1048576).toFixed(1))"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: luoyunzong-web
-          path: build/web/
+          name: luoyunzong-web-html
+          path: dist/luoyunzong.html
           if-no-files-found: error
 
   # ------------------------------------------------------------------
-  # 4) 打 tag 时汇总发布
+  # 4) 打 tag 时汇总发布（只有单文件产物）
   # ------------------------------------------------------------------
   release:
     name: Publish Release
@@ -204,10 +204,11 @@ jobs:
         with:
           path: dist
 
-      - name: Flatten artifacts
+      - name: Collect single-file artifacts
         run: |
           mkdir -p release
-          find dist -type f \( -name '*.apk' -o -name '*.aab' -o -name '*.zip' -o -name '*.tar.gz' \) -exec cp {} release/ \;
+          find dist -maxdepth 3 -type f \( -name '*.exe' -o -name '*.run' -o -name '*.dmg' \
+            -o -name '*.apk' -o -name '*.ipa' -o -name '*.html' \) -exec cp {} release/ \;
           cd release && sha256sum * > SHA256SUMS.txt && ls -lh
 
       - uses: softprops/action-gh-release@v2

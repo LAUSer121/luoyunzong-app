@@ -1,0 +1,68 @@
+name: Web (GitHub Pages)
+
+# 网页版：构建后发布到 GitHub Pages，打开网址即用（不再提供压缩包）。
+# 关键点：
+#   1) --no-web-resources-cdn：把 CanvasKit 一起打进产物，避免国内网络加载 gstatic 失败导致白屏；
+#   2) --base-href /<repo>/：项目站点部署在子路径下，base href 不对会直接白屏。
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+env:
+  FLUTTER_VERSION: '3.47.4'
+
+jobs:
+  build:
+    name: Build web
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+
+      - name: Build web (offline-friendly, correct base href)
+        run: |
+          REPO_NAME="${GITHUB_REPOSITORY#*/}"
+          flutter build web --release --no-web-resources-cdn --base-href "/$REPO_NAME/"
+
+      - name: Sanity check build output
+        run: |
+          test -f build/web/index.html
+          test -f build/web/flutter_bootstrap.js
+          test -d build/web/canvaskit
+          grep -q "canvaskit" build/web/index.html || echo "index 未内联 canvaskit 引用（正常，由 bootstrap 加载）"
+          du -sh build/web
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: build/web
+
+  deploy:
+    name: Deploy to Pages
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

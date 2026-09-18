@@ -77,28 +77,76 @@ ThemeData buildAppTheme() {
     platform: TargetPlatform.android,
   ).white;
 
+  // 中文字形优先用「中文字体」显式指定，避免 Flutter 默认回退到日文字体，
+  // 导致「户/门/直/真」等字形的点画变成竖画（这正是旧版换成 Flutter 后最先看出来的差异）。
+  const List<String> cjkSans = <String>[
+    'Microsoft YaHei UI',
+    'Microsoft YaHei',
+    'PingFang SC',
+    'Hiragino Sans GB',
+    'Noto Sans CJK SC',
+    'Source Han Sans SC',
+    'WenQuanYi Micro Hei',
+    'SimHei',
+    'sans-serif',
+  ];
+  const List<String> cjkSerif = <String>[
+    'KaiTi',
+    'STKaiti',
+    '楷体',
+    'Songti SC',
+    'SimSun',
+    'Noto Serif CJK SC',
+    'serif',
+  ];
+
+  TextStyle? sans(
+    TextStyle? s, {
+    Color? color,
+    double? letterSpacing,
+    FontWeight? weight,
+  }) {
+    return s?.copyWith(
+      color: color,
+      letterSpacing: letterSpacing,
+      fontWeight: weight,
+      fontFamilyFallback: cjkSans,
+    );
+  }
+
   return ThemeData(
     useMaterial3: true,
     colorScheme: scheme,
     scaffoldBackgroundColor: AppColors.backdrop,
+    fontFamilyFallback: cjkSans,
     textTheme: base.copyWith(
-      displaySmall: base.displaySmall?.copyWith(
+      displaySmall: sans(
+        base.displaySmall,
         color: AppColors.gold,
         letterSpacing: 4,
       ),
-      headlineMedium: base.headlineMedium?.copyWith(
+      headlineMedium: sans(
+        base.headlineMedium,
         color: AppColors.gold,
         letterSpacing: 3,
-        fontWeight: FontWeight.w600,
+        weight: FontWeight.w600,
       ),
+      headlineSmall: sans(base.headlineSmall, color: AppColors.gold),
+      // 大标题用楷体（与旧版视觉一致），正文字体走无衬线中文栈
       titleLarge: base.titleLarge?.copyWith(
         color: AppColors.gold,
         letterSpacing: 1.5,
+        fontFamily: null,
+        fontFamilyFallback: cjkSerif,
       ),
-      titleMedium: base.titleMedium?.copyWith(color: AppColors.text),
-      bodyMedium: base.bodyMedium?.copyWith(color: AppColors.text),
-      bodySmall: base.bodySmall?.copyWith(color: AppColors.textMuted),
-      labelLarge: base.labelLarge?.copyWith(letterSpacing: 1),
+      titleMedium: sans(base.titleMedium, color: AppColors.text),
+      titleSmall: sans(base.titleSmall, color: AppColors.textMuted),
+      bodyLarge: sans(base.bodyLarge, color: AppColors.text),
+      bodyMedium: sans(base.bodyMedium, color: AppColors.text),
+      bodySmall: sans(base.bodySmall, color: AppColors.textMuted),
+      labelLarge: sans(base.labelLarge, letterSpacing: 1),
+      labelMedium: sans(base.labelMedium),
+      labelSmall: sans(base.labelSmall),
     ),
     cardTheme: CardThemeData(
       color: AppColors.surfaceHigh.withValues(alpha: 0.82),

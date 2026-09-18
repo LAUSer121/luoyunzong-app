@@ -1,4 +1,8 @@
 /// 桌面 / 移动端存储实现：写入应用支持目录下的存档文件。
+///
+/// 便携模式（单文件便携版）：满足任一条件时，存档与可执行文件放在一起
+/// 1. 环境变量 `LUOYUNZONG_DATA_DIR` 指向某个目录；
+/// 2. 可执行文件同级存在 `luoyunzong_data` 目录（解压版/绿色版用户自行创建即可）。
 library;
 
 import 'dart:io';
@@ -10,6 +14,9 @@ import 'storage_backend.dart';
 const String _kFileName = 'luoyunzong_archive.json';
 const String _kBackupName = 'luoyunzong_archive.backup.json';
 
+/// 便携模式数据目录名（与可执行文件同级）。
+const String kPortableDataDirName = 'luoyunzong_data';
+
 class FileStorageBackend implements StorageBackend {
   FileStorageBackend();
 
@@ -18,9 +25,29 @@ class FileStorageBackend implements StorageBackend {
   @override
   String get description => '本地文件';
 
+  /// 数据目录：便携目录优先，其次系统应用支持目录。
+  Future<Directory> _baseDir() async {
+    final String? envDir = Platform.environment['LUOYUNZONG_DATA_DIR'];
+    if (envDir != null && envDir.trim().isNotEmpty) {
+      final Directory dir = Directory(envDir.trim());
+      if (!await dir.exists()) await dir.create(recursive: true);
+      return dir;
+    }
+    try {
+      final Directory exeDir = File(Platform.resolvedExecutable).parent;
+      final Directory portable = Directory(
+        '${exeDir.path}${Platform.pathSeparator}$kPortableDataDirName',
+      );
+      if (await portable.exists()) return portable;
+    } catch (_) {
+      // 桌面以外的平台忽略
+    }
+    return getApplicationSupportDirectory();
+  }
+
   Future<File> _resolve() async {
     if (_cached != null) return _cached!;
-    final Directory dir = await getApplicationSupportDirectory();
+    final Directory dir = await _baseDir();
     if (!await dir.exists()) {
       await dir.create(recursive: true);
     }

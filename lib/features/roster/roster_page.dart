@@ -175,20 +175,22 @@ class _RosterPageState extends State<RosterPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          SectionTitle(
-            '成员录入',
-            subtitle: unlocked ? '手动录入或批量粘贴名单' : '解锁编辑后可录入',
-            trailing: SegmentedButton<int>(
+          SectionTitle('成员录入', subtitle: unlocked ? '手动录入或批量粘贴名单' : '解锁编辑后可录入'),
+          // 独立一行展示切换按钮，避免窄屏时与标题挤压换行。
+          Align(
+            alignment: Alignment.centerLeft,
+            child: SegmentedButton<int>(
+              showSelectedIcon: false,
               segments: const <ButtonSegment<int>>[
                 ButtonSegment<int>(
                   value: 0,
                   label: Text('手动录入'),
-                  icon: Icon(Icons.person_add_alt),
+                  icon: Icon(Icons.person_add_alt, size: 16),
                 ),
                 ButtonSegment<int>(
                   value: 1,
                   label: Text('批量导入'),
-                  icon: Icon(Icons.playlist_add),
+                  icon: Icon(Icons.playlist_add, size: 16),
                 ),
               ],
               selected: <int>{_tab},
@@ -196,6 +198,7 @@ class _RosterPageState extends State<RosterPage> {
                   setState(() => _tab = v.first),
             ),
           ),
+          const SizedBox(height: 14),
           if (_tab == 0)
             _manualForm(state, unlocked)
           else
