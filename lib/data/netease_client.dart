@@ -9,6 +9,7 @@
 library;
 
 import 'dart:convert';
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
@@ -35,16 +36,16 @@ class NeteaseClient {
 
   bool get useProxy => apiBase.isNotEmpty;
 
-  /// 修仙 / 古风 风格的预设搜索词。
+  /// 修仙 / 古风 风格的预设搜索词（偏向纯音乐与仙侠配乐，避免搜到流行情歌）。
   static const List<String> presetKeywords = <String>[
-    '仙侠',
-    '古风',
-    '仙气纯音乐',
-    '洞箫古筝',
+    '仙侠 纯音乐',
+    '古风 纯音乐',
+    '仙剑奇侠传 配乐',
+    '剑网3 背景音乐',
+    '古筝 洞箫',
+    '国风 燃曲',
     '御剑江湖',
-    '宗门修炼',
-    '山河仙途',
-    '打坐冥想',
+    '打坐 冥想',
   ];
 
   static const Map<String, String> _publicHeaders = <String, String>{
@@ -217,6 +218,44 @@ class NeteaseClient {
     } catch (_) {
       return null;
     }
+  }
+
+  /// 一键挑选：随机换关键词搜索并逐个校验可播放性，返回可直接播放的曲目。
+  ///
+  /// 用于「一键仙侠电台」：调用方拿到结果后即可入队播放。
+  Future<List<({OnlineTrack track, String url})>> pickPlayable({
+    int target = 6,
+    List<String>? keywords,
+  }) async {
+    final math.Random rnd = math.Random();
+    final List<String> pool = List<String>.of(keywords ?? presetKeywords)
+      ..shuffle(rnd);
+    final List<({OnlineTrack track, String url})> picked =
+        <({OnlineTrack track, String url})>[];
+    final Set<String> seen = <String>{};
+    for (final String keyword in pool) {
+      if (picked.length >= target) break;
+      List<OnlineTrack> found;
+      try {
+        found = await search(keyword, limit: 15);
+      } catch (_) {
+        continue; // 换个关键词继续
+      }
+      found.shuffle(rnd);
+      int fromThisKeyword = 0;
+      for (final OnlineTrack track in found) {
+        if (picked.length >= target) break;
+        // 每个关键词最多取 2 首，保证电台曲目有风格差异
+        if (fromThisKeyword >= 2) break;
+        if (!seen.add(track.id)) continue;
+        final String? url = await streamUrl(track.id);
+        if (url == null) continue;
+        picked.add((track: track, url: url));
+        fromThisKeyword++;
+      }
+    }
+    picked.shuffle(rnd);
+    return picked;
   }
 
   /// 封面小图地址（网易云支持 `?param=WxH` 裁剪）。

@@ -64,8 +64,14 @@ void main() {
     });
 
     test('预设关键词覆盖修仙题材', () {
-      expect(NeteaseClient.presetKeywords, contains('仙侠'));
-      expect(NeteaseClient.presetKeywords, contains('古风'));
+      expect(
+        NeteaseClient.presetKeywords.any((String k) => k.contains('仙侠')),
+        isTrue,
+      );
+      expect(
+        NeteaseClient.presetKeywords.any((String k) => k.contains('古风')),
+        isTrue,
+      );
     });
   });
 

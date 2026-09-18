@@ -5,7 +5,6 @@
 library;
 
 import 'dart:async';
-import 'dart:math' as math;
 
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/foundation.dart';
@@ -261,6 +260,8 @@ class BgmController extends ChangeNotifier {
 
   /// 一键挑选仙侠 / 古风曲目：随机关键词搜索，逐个校验可播放性，
   /// 挑到 [target] 首后替换上一轮自动挑选的曲目并可立即播放。
+  /// 一键挑选仙侠 / 古风曲目：随机关键词搜索 + 逐个校验可播放性，
+  /// 挑到 [target] 首后替换上一轮自动挑选的曲目并可立即播放。
   Future<String?> autoFillXianxia({bool playNow = true, int target = 6}) async {
     final NeteaseClient? client = netease;
     if (client == null) return '在线音乐客户端未就绪';
@@ -268,31 +269,9 @@ class BgmController extends ChangeNotifier {
     _lastError = null;
     notifyListeners();
 
-    final math.Random rnd = math.Random();
-    final List<String> keywords = List<String>.of(NeteaseClient.presetKeywords)
-      ..shuffle(rnd);
-    final List<OnlineTrack> picked = <OnlineTrack>[];
-    final Map<String, String> resolved = <String, String>{};
-    final Set<String> seen = <String>{};
+    List<({OnlineTrack track, String url})> picked;
     try {
-      for (final String kw in keywords) {
-        if (picked.length >= target) break;
-        List<OnlineTrack> found;
-        try {
-          found = await client.search(kw, limit: 15);
-        } catch (_) {
-          continue;
-        }
-        found.shuffle(rnd);
-        for (final OnlineTrack t in found) {
-          if (picked.length >= target) break;
-          if (!seen.add(t.id)) continue;
-          final String? url = await client.streamUrl(t.id);
-          if (url == null) continue;
-          resolved[t.id] = url;
-          picked.add(t);
-        }
-      }
+      picked = await client.pickPlayable(target: target);
     } finally {
       _resolving = false;
     }
@@ -306,17 +285,21 @@ class BgmController extends ChangeNotifier {
     // 替换上一轮自动挑选的曲目（手动加入的曲单不动）
     _tracks.removeWhere((BgmTrack t) => t.autoPicked);
     final int firstIndex = _tracks.length;
-    for (final OnlineTrack t in picked) {
+    for (final ({OnlineTrack track, String url}) p in picked) {
       _tracks.add(
-        BgmTrack(name: t.name, online: t, sessionOnly: true, autoPicked: true)
-          ..remoteUrl = resolved[t.id],
+        BgmTrack(
+          name: p.track.name,
+          online: p.track,
+          sessionOnly: true,
+          autoPicked: true,
+        )..remoteUrl = p.url,
       );
     }
     _index = firstIndex;
     _lastError = null;
     notifyListeners();
     if (playNow) await loadCurrent(autoplay: true);
-    return '已自动挑选 ${picked.length} 首仙侠曲目';
+    return '已自动挑选  首仙侠曲目';
   }
 
   Future<void> loadCurrent({bool autoplay = true}) async {
