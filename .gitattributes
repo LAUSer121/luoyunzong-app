@@ -1,0 +1,25 @@
+# 统一换行符，避免 Windows 检出后 CI 的 dart format 校验失败
+* text=auto
+
+*.dart text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+*.sh  text eol=lf
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.ttf binary
+*.otf binary
+*.so binary
+*.dll binary
+*.dylib binary
+*.jar binary
