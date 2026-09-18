@@ -30,6 +30,7 @@ class _SettingsPageState extends State<SettingsPage> {
   final SettingsStore _store = SettingsStore();
   final TextEditingController _apiUrl = TextEditingController();
   final TextEditingController _apiToken = TextEditingController();
+  final TextEditingController _neteaseController = TextEditingController();
   String? _storagePath;
   bool _storagePathRequested = false;
   String? _apiStatus;
@@ -45,10 +46,12 @@ class _SettingsPageState extends State<SettingsPage> {
   Future<void> _loadSettings() async {
     final String url = await _store.apiBaseUrl();
     final String token = await _store.apiToken();
+    final String netease = await _store.neteaseBase();
     if (!mounted) return;
     setState(() {
       _apiUrl.text = url;
       _apiToken.text = token;
+      _neteaseController.text = netease;
       _loadedSettings = true;
     });
   }
@@ -57,6 +60,7 @@ class _SettingsPageState extends State<SettingsPage> {
   void dispose() {
     _apiUrl.dispose();
     _apiToken.dispose();
+    _neteaseController.dispose();
     super.dispose();
   }
 
@@ -89,6 +93,8 @@ class _SettingsPageState extends State<SettingsPage> {
           actions: <Widget>[AdminStatusTile(compact: true)],
         ),
         _permissionCard(state, unlocked),
+        const SizedBox(height: 16),
+        _bgmCard(state),
         const SizedBox(height: 16),
         _backgroundCard(state, archive),
         const SizedBox(height: 16),
@@ -145,6 +151,65 @@ class _SettingsPageState extends State<SettingsPage> {
               color: AppColors.textFaint,
               fontSize: 12,
               height: 1.7,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 音乐与电台设置：自动播放开关、在线搜索代理地址。
+  Widget _bgmCard(AppState state) {
+    return GlassCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          const SectionTitle(
+            '音乐与在线电台',
+            subtitle: '曲单、封面与进度条在右下角音乐悬浮球里；这里配置启动行为与代理',
+          ),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            value: state.bgmAutoPlay,
+            onChanged: state.setBgmAutoPlay,
+            title: const Text('进入应用后自动播放 BGM', style: TextStyle(fontSize: 14)),
+            subtitle: const Text(
+              '关闭后需手动点开音乐悬浮球播放',
+              style: TextStyle(fontSize: 12, color: AppColors.textFaint),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: <Widget>[
+              Expanded(
+                child: TextField(
+                  controller: _neteaseController,
+                  enabled: _loadedSettings,
+                  decoration: const InputDecoration(
+                    labelText: '在线电台代理地址（可选）',
+                    hintText: 'http://127.0.0.1:3000（自建 NeteaseCloudMusicApi）',
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              FilledButton(
+                onPressed: () async {
+                  await _store.setNeteaseBase(_neteaseController.text);
+                  state.setNeteaseBase(_neteaseController.text);
+                  _toast('在线电台代理已保存');
+                },
+                child: const Text('保存'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          const Text(
+            '网易云搜索：桌面/手机版直连官方接口；浏览器版受跨域限制，需填写自建代理地址。'
+            '在线曲目只保存歌名/歌手/封面，播放时按 id 取流地址。',
+            style: TextStyle(
+              color: AppColors.textFaint,
+              fontSize: 12,
+              height: 1.8,
             ),
           ),
         ],

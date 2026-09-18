@@ -100,6 +100,7 @@ Future<void> main(List<String> args) async {
   final String originalIndex = File('${dir.path}/index.html')
       .readAsStringSync();
   final String bodyMarkup = _extractBody(originalIndex);
+  final String faviconData = _faviconDataUri(dir);
 
   // ------------------------------------------------------------------
   // 3) 生成单文件 HTML
@@ -116,6 +117,9 @@ Future<void> main(List<String> args) async {
     ..writeln('<meta name="description" content="落云宗 · 宗门管理（单文件便携网页版）">')
     ..writeln('<meta name="apple-mobile-web-app-capable" content="yes">')
     ..writeln('<title>落云宗 · 宗门管理</title>')
+    ..writeln(
+      faviconData.isEmpty ? '' : '<link rel="icon" href="$faviconData">',
+    )
     ..writeln('<style>')
     ..writeln(_kStyle)
     ..writeln('</style>')
@@ -151,6 +155,17 @@ Future<void> main(List<String> args) async {
   stdout.writeln(
     '[inline] 生成：${out.path}（${sizeMb.toStringAsFixed(1)} MB，内联 ${table.length} 个资源）',
   );
+}
+
+/// 把 favicon 内联成 data URI（单文件 HTML 也能有图标）。
+String _faviconDataUri(Directory webDir) {
+  for (final String name in <String>['favicon.png', 'icons/Icon-192.png']) {
+    final File file = File('${webDir.path}/$name');
+    if (!file.existsSync()) continue;
+    final String mime = name.endsWith('.png') ? 'image/png' : 'image/x-icon';
+    return 'data:$mime;base64,${base64Encode(file.readAsBytesSync())}';
+  }
+  return '';
 }
 
 String _extractBody(String indexHtml) {

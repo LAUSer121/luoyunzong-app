@@ -190,12 +190,14 @@ jobs:
           if-no-files-found: error
 
   # ------------------------------------------------------------------
-  # 4) 打 tag 时汇总发布（只有单文件产物）
+  # 4) 每次构建都发布 Release（不打包，只有单文件）
+  #    - 普通推送：更新滚动 Release（tag: latest）
+  #    - 打 v* 标签：发布对应版本 Release
   # ------------------------------------------------------------------
   release:
     name: Publish Release
     needs: [desktop, android, ios, web]
-    if: startsWith(github.ref, 'refs/tags/v') || inputs.upload_release
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -211,8 +213,25 @@ jobs:
             -o -name '*.apk' -o -name '*.ipa' -o -name '*.html' \) -exec cp {} release/ \;
           cd release && sha256sum * > SHA256SUMS.txt && ls -lh
 
-      - uses: softprops/action-gh-release@v2
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || 'latest' }}
+          name: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '最新构建（latest）' }}
+          body: |
+            落云宗 · 宗门管理 —— 单文件构建产物（不打包，直接下载即用）
+
+            - `luoyunzong-portable.exe`：Windows 便携版（双击即用）
+            - `luoyunzong-macos.dmg`：macOS 磁盘映像
+            - `luoyunzong-portable.run`：Linux 自解压单文件
+            - `luoyunzong.apk`：Android 安装包
+            - `luoyunzong-unsigned.ipa`：iOS 未签名包（需自签）
+            - `luoyunzong.html`：单文件网页版（双击浏览器打开即用，可离线）
+
+            提交：`${{ github.sha }}`
+            构建记录：${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           files: release/*
-          generate_release_notes: true
+          generate_release_notes: false
           draft: false
+          prerelease: false
+          make_latest: true

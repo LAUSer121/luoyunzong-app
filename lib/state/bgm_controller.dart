@@ -1,4 +1,4 @@
-/// BGM 播放控制器：曲单来自存档（长期曲目）+ 本次会话曲目。
+/// BGM 播放控制器：本地曲目 + 网易云在线曲目（带封面、可拖动进度）。
 ///
 /// 音频后端（audioplayers）采用惰性创建：在没有平台插件的环境（单元测试、
 /// 精简桌面环境）里只标记不可用，不让应用启动失败。
@@ -10,6 +10,7 @@ import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/foundation.dart';
 
 import '../data/bgm_store.dart';
+import '../data/netease_client.dart';
 import '../domain/models.dart';
 
 class BgmTrack {
@@ -18,15 +19,34 @@ class BgmTrack {
     this.path,
     this.bytes,
     this.sessionOnly = false,
+    this.online,
   });
 
   final String name;
   String? path;
 
-  /// 会话曲目（Web 端或有临时文件时直接用内存播放）。
+  /// 会话曲目（Web 端或临时文件时直接用内存播放）。
   Uint8List? bytes;
   final bool sessionOnly;
+
+  /// 在线曲目（网易云）元数据。
+  final OnlineTrack? online;
+
+  /// 已解析的流地址。
+  String? remoteUrl;
+
   bool missing = false;
+
+  bool get isOnline => online != null;
+
+  String? get cover => online == null ? null : NeteaseClient.coverUrl(online!);
+
+  String get subtitle {
+    if (online != null) return online!.subtitle;
+    if (sessionOnly) return '本次会话';
+    if (missing) return '文件缺失';
+    return '本地文件';
+  }
 }
 
 class BgmController extends ChangeNotifier {
@@ -36,22 +56,35 @@ class BgmController extends ChangeNotifier {
   bool _audioAvailable = true;
   bool _eventsBound = false;
 
+  /// 在线搜索客户端（由 AppState 注入，含可选代理地址）。
+  NeteaseClient? netease;
+
   final List<BgmTrack> _tracks = <BgmTrack>[];
   int _index = 0;
   double _volume = 0.6;
   bool _playing = false;
   bool _started = false;
   String? _lastError;
+  Duration _duration = Duration.zero;
+  Duration _position = Duration.zero;
+  bool _resolving = false;
 
   List<BgmTrack> get tracks => List<BgmTrack>.unmodifiable(_tracks);
   int get index => _index;
   double get volume => _volume;
   bool get playing => _playing;
+  bool get resolving => _resolving;
   String? get lastError => _lastError;
   bool get audioAvailable => _audioAvailable;
+  Duration get duration => _duration;
+  Duration get position => _position;
+  double get progress => _duration.inMilliseconds == 0
+      ? 0
+      : (_position.inMilliseconds / _duration.inMilliseconds).clamp(0, 1);
   BgmTrack? get current =>
       (_index >= 0 && _index < _tracks.length) ? _tracks[_index] : null;
   String get title => current?.name ?? '未选择音乐';
+  String? get currentCover => current?.cover;
   bool get storageSupported => bgmStorageSupported;
 
   /// 惰性获取播放器；平台不支持时返回 `null`。
@@ -75,7 +108,20 @@ class BgmController extends ChangeNotifier {
   void _bindEvents() {
     if (_eventsBound || _player == null) return;
     _eventsBound = true;
-    _player!.onPlayerComplete.listen((_) => unawaited(next(auto: true)));
+    final AudioPlayer player = _player!;
+    player.onPlayerComplete.listen((_) => unawaited(next(auto: true)));
+    player.onDurationChanged.listen((Duration d) {
+      _duration = d;
+      notifyListeners();
+    });
+    player.onPositionChanged.listen((Duration p) {
+      _position = p;
+      notifyListeners();
+    });
+    player.onPlayerStateChanged.listen((PlayerState s) {
+      _playing = s == PlayerState.playing;
+      notifyListeners();
+    });
   }
 
   /// 平台不支持音频（如单元测试、无音频后端的环境）时标记不可用。
@@ -86,17 +132,21 @@ class BgmController extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// 依据存档重建曲单（存档里保存的是「长期曲目」文件名）。
-  ///
-  /// 会话曲目（用户本次导入、无法落盘的音乐）会被保留，排在长期曲目之后。
+  /// 依据存档重建曲单：本地曲目 → 在线曲目 → 会话曲目。
   Future<void> syncFromArchive(Archive archive) async {
     final List<BgmTrack> sessionTracks = _tracks
         .where((BgmTrack t) => t.sessionOnly)
         .toList();
+
     _tracks
       ..clear()
       ..addAll(
         archive.bgm.customNames.map((String name) => BgmTrack(name: name)),
+      )
+      ..addAll(
+        archive.bgm.onlineTracks.map(
+          (OnlineTrack t) => BgmTrack(name: t.name, online: t),
+        ),
       )
       ..addAll(sessionTracks);
 
@@ -111,7 +161,7 @@ class BgmController extends ChangeNotifier {
     }
 
     for (final BgmTrack t in _tracks) {
-      if (!t.sessionOnly) {
+      if (!t.sessionOnly && !t.isOnline) {
         t.path = await audioFilePath(t.name);
         t.missing = t.path == null;
       }
@@ -122,7 +172,11 @@ class BgmController extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// 添加本地音乐文件（复制到应用数据目录，随存档长期保留；Web 端为会话曲目）。
+  // ------------------------------------------------------------------
+  // 本地曲目管理
+  // ------------------------------------------------------------------
+
+  /// 添加本地音乐文件（复制到应用数据目录；Web 端为会话曲目）。
   Future<String?> addFiles(List<({String name, Uint8List bytes})> files) async {
     if (files.isEmpty) return '没有可用的音频文件';
     final List<String> addedNames = <String>[];
@@ -135,7 +189,7 @@ class BgmController extends ChangeNotifier {
       }
       addedNames.add(f.name);
     }
-    if (_tracks.isNotEmpty && _playing == false && _index >= _tracks.length) {
+    if (_tracks.isNotEmpty && !_playing && _index >= _tracks.length) {
       _index = _tracks.length - 1;
     }
     notifyListeners();
@@ -156,10 +210,35 @@ class BgmController extends ChangeNotifier {
     return <String>[trimmed];
   }
 
+  /// 把在线曲目加入曲单（会写入存档）。
+  void addOnlineTrack(OnlineTrack track) {
+    if (_tracks.any((BgmTrack t) => t.isOnline && t.online!.id == track.id)) {
+      return;
+    }
+    _tracks.add(BgmTrack(name: track.name, online: track));
+    _index = _tracks.length - 1;
+    notifyListeners();
+  }
+
+  /// 播放一首在线歌曲（不写入曲单，用于电台试听）。
+  Future<void> playOnlinePreview(OnlineTrack track) async {
+    final int exist = _tracks.indexWhere(
+      (BgmTrack t) => t.isOnline && t.online!.id == track.id,
+    );
+    if (exist >= 0) {
+      _index = exist;
+    } else {
+      _tracks.add(BgmTrack(name: track.name, online: track, sessionOnly: true));
+      _index = _tracks.length - 1;
+    }
+    notifyListeners();
+    await loadCurrent(autoplay: true);
+  }
+
   Future<void> removeTrack(int i) async {
     if (i < 0 || i >= _tracks.length) return;
     final BgmTrack t = _tracks[i];
-    if (!t.sessionOnly) await deleteAudioFile(t.name);
+    if (!t.sessionOnly && !t.isOnline) await deleteAudioFile(t.name);
     _tracks.removeAt(i);
     if (_index > i) _index--;
     if (_tracks.isEmpty) {
@@ -170,6 +249,10 @@ class BgmController extends ChangeNotifier {
     }
     notifyListeners();
   }
+
+  // ------------------------------------------------------------------
+  // 播放控制
+  // ------------------------------------------------------------------
 
   Future<void> loadCurrent({bool autoplay = true}) async {
     final BgmTrack? t = current;
@@ -183,21 +266,33 @@ class BgmController extends ChangeNotifier {
       notifyListeners();
       return;
     }
-    if (t.path == null && t.bytes == null) {
-      t.missing = true;
-      _lastError = '未找到音乐文件：${t.name}';
-      notifyListeners();
-      return;
-    }
     try {
-      if (t.path != null) {
+      if (t.isOnline) {
+        _resolving = true;
+        notifyListeners();
+        t.remoteUrl ??= await netease?.streamUrl(t.online!.id);
+        _resolving = false;
+        if (t.remoteUrl == null || t.remoteUrl!.isEmpty) {
+          _lastError = '无法获取《${t.name}》的播放地址（可能受版权限制）';
+          _playing = false;
+          notifyListeners();
+          return;
+        }
+        await player.play(UrlSource(t.remoteUrl!), volume: _volume);
+      } else if (t.path != null) {
         await player.play(DeviceFileSource(t.path!), volume: _volume);
-      } else {
+      } else if (t.bytes != null) {
         await player.play(BytesSource(t.bytes!), volume: _volume);
+      } else {
+        t.missing = true;
+        _lastError = '未找到音乐文件：${t.name}';
+        notifyListeners();
+        return;
       }
       _playing = autoplay;
       _lastError = null;
     } catch (e) {
+      _resolving = false;
       _playing = false;
       _lastError = '播放失败：$e';
     }
@@ -237,6 +332,20 @@ class BgmController extends ChangeNotifier {
     await loadCurrent(autoplay: true);
   }
 
+  /// 拖动进度条（秒）。
+  Future<void> seekTo(double seconds) async {
+    final AudioPlayer? player = _player;
+    if (player == null) return;
+    final Duration target = Duration(milliseconds: (seconds * 1000).round());
+    _position = target;
+    notifyListeners();
+    try {
+      await player.seek(target);
+    } catch (_) {
+      // 在线流可能不支持跳转，忽略
+    }
+  }
+
   Future<void> setVolume(double v) async {
     _volume = v.clamp(0, 1).toDouble();
     final AudioPlayer? player = _ensurePlayer();
@@ -257,10 +366,11 @@ class BgmController extends ChangeNotifier {
       // 忽略
     }
     _playing = false;
+    _position = Duration.zero;
     notifyListeners();
   }
 
-  /// 首次启动自动播放（浏览器可能拦截，失败时静默）。
+  /// 启动时自动播放（由调用方根据「自动播放」开关决定是否调用）。
   Future<void> autoStart() async {
     if (_started) return;
     _started = true;

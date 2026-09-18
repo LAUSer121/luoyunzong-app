@@ -74,8 +74,8 @@ ThemeData buildAppTheme() {
         outline: AppColors.outline,
       );
 
-  final TextTheme base = Typography.material2021(
-    platform: TargetPlatform.android,
+  final TextTheme rawBase = Typography.material2021(
+    platform: defaultTargetPlatform,
   ).white;
 
   // 使用「系统自带字体」并显式给出中文栈：Windows 走微软雅黑，macOS 走苹方/系统默认，
@@ -127,6 +127,14 @@ ThemeData buildAppTheme() {
   final String? primary = defaultTargetPlatform == TargetPlatform.windows
       ? 'Microsoft YaHei UI'
       : null;
+
+  // 先给整套 TextTheme 打上字体与中文回退，确保没有漏网的样式（display/title/label 全覆盖）。
+  final TextTheme base = rawBase.apply(
+    fontFamily: primary,
+    fontFamilyFallback: cjkSans,
+    bodyColor: AppColors.text,
+    displayColor: AppColors.text,
+  );
 
   TextStyle? sans(
     TextStyle? s, {
@@ -229,28 +237,39 @@ ThemeData buildAppTheme() {
       style: TextButton.styleFrom(foregroundColor: AppColors.goldDeep),
     ),
     dividerTheme: const DividerThemeData(color: Color(0x22F7E2A8), space: 24),
-    navigationRailTheme: const NavigationRailThemeData(
-      backgroundColor: Color(0xCC0C1426),
-      indicatorColor: Color(0x33F7E2A8),
-      selectedIconTheme: IconThemeData(color: AppColors.gold),
-      unselectedIconTheme: IconThemeData(color: AppColors.textFaint),
+    navigationRailTheme: NavigationRailThemeData(
+      backgroundColor: const Color(0xCC0C1426),
+      indicatorColor: const Color(0x33F7E2A8),
+      selectedIconTheme: const IconThemeData(color: AppColors.gold),
+      unselectedIconTheme: const IconThemeData(color: AppColors.textFaint),
       selectedLabelTextStyle: TextStyle(
         color: AppColors.gold,
         letterSpacing: 1,
+        fontFamily: primary,
+        fontFamilyFallback: cjkSans,
       ),
-      unselectedLabelTextStyle: TextStyle(color: AppColors.textMuted),
+      unselectedLabelTextStyle: TextStyle(
+        color: AppColors.textMuted,
+        fontFamily: primary,
+        fontFamilyFallback: cjkSans,
+      ),
     ),
     navigationBarTheme: NavigationBarThemeData(
       backgroundColor: const Color(0xF00C1426),
       indicatorColor: const Color(0x33F7E2A8),
       labelTextStyle: WidgetStatePropertyAll<TextStyle>(
-        const TextStyle(fontSize: 12, color: AppColors.textMuted),
+        TextStyle(
+          fontSize: 12,
+          color: AppColors.textMuted,
+          fontFamily: primary,
+          fontFamilyFallback: cjkSans,
+        ),
       ),
       iconTheme: const WidgetStatePropertyAll<IconThemeData>(
         IconThemeData(color: AppColors.goldDeep),
       ),
     ),
-    appBarTheme: const AppBarTheme(
+    appBarTheme: AppBarTheme(
       backgroundColor: Colors.transparent,
       surfaceTintColor: Colors.transparent,
       elevation: 0,
@@ -260,6 +279,8 @@ ThemeData buildAppTheme() {
         color: AppColors.gold,
         fontSize: 20,
         letterSpacing: 3,
+        fontFamily: primary,
+        fontFamilyFallback: cjkSans,
       ),
     ),
     dialogTheme: DialogThemeData(
@@ -268,21 +289,36 @@ ThemeData buildAppTheme() {
         borderRadius: BorderRadius.circular(18),
         side: const BorderSide(color: Color(0x55D4B886)),
       ),
-      titleTextStyle: const TextStyle(
+      titleTextStyle: TextStyle(
         color: AppColors.gold,
         fontSize: 19,
         letterSpacing: 2,
+        fontFamily: primary,
+        fontFamilyFallback: cjkSans,
       ),
-      contentTextStyle: const TextStyle(color: AppColors.text),
+      contentTextStyle: TextStyle(
+        color: AppColors.text,
+        fontFamily: primary,
+        fontFamilyFallback: cjkSans,
+      ),
     ),
-    snackBarTheme: const SnackBarThemeData(
-      backgroundColor: Color(0xF21B2030),
-      contentTextStyle: TextStyle(color: AppColors.text),
+    snackBarTheme: SnackBarThemeData(
+      backgroundColor: const Color(0xF21B2030),
+      contentTextStyle: TextStyle(
+        color: AppColors.text,
+        fontFamily: primary,
+        fontFamilyFallback: cjkSans,
+      ),
       behavior: SnackBarBehavior.floating,
     ),
-    tooltipTheme: const TooltipThemeData(
-      decoration: BoxDecoration(color: Color(0xF21B2030)),
-      textStyle: TextStyle(color: AppColors.text, fontSize: 12),
+    tooltipTheme: TooltipThemeData(
+      decoration: const BoxDecoration(color: Color(0xF21B2030)),
+      textStyle: TextStyle(
+        color: AppColors.text,
+        fontSize: 12,
+        fontFamily: primary,
+        fontFamilyFallback: cjkSans,
+      ),
     ),
     scrollbarTheme: ScrollbarThemeData(
       thumbColor: WidgetStatePropertyAll<Color>(

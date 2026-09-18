@@ -374,25 +374,84 @@ class ExamData {
   ExamData copy() => ExamData.fromJson(toJson());
 }
 
+/// 在线曲目（网易云）：只存元数据，播放时按 id 取流地址。
+class OnlineTrack {
+  OnlineTrack({
+    required this.id,
+    required this.name,
+    this.artist = '',
+    this.cover = '',
+    this.durationMs = 0,
+  });
+
+  factory OnlineTrack.fromJson(Map<String, Object?> json) => OnlineTrack(
+    id: _asString(json['id']),
+    name: _asString(json['name']),
+    artist: _asString(json['artist']),
+    cover: _asString(json['cover']),
+    durationMs: _asInt(json['durationMs']),
+  );
+
+  final String id;
+  String name;
+  String artist;
+  String cover;
+  int durationMs;
+
+  String get subtitle => artist.isEmpty ? '未知歌手' : artist;
+
+  Map<String, Object?> toJson() => <String, Object?>{
+    'id': id,
+    'name': name,
+    'artist': artist,
+    'cover': cover,
+    'durationMs': durationMs,
+  };
+}
+
 /// BGM 设置。
 class BgmSetting {
-  BgmSetting({this.volume = 0.6, List<String>? customNames, this.index = 0})
-    : customNames = customNames ?? <String>[];
+  BgmSetting({
+    this.volume = 0.6,
+    List<String>? customNames,
+    List<OnlineTrack>? onlineTracks,
+    this.index = 0,
+    this.autoPlay = true,
+  }) : customNames = customNames ?? <String>[],
+       onlineTracks = onlineTracks ?? <OnlineTrack>[];
 
-  factory BgmSetting.fromJson(Map<String, Object?> json) => BgmSetting(
-    volume: _asDouble(json['volume'], 0.6).clamp(0, 1).toDouble(),
-    customNames: _asStringList(json['customNames']),
-    index: _asInt(json['index']),
-  );
+  factory BgmSetting.fromJson(Map<String, Object?> json) {
+    final List<OnlineTrack> online = <OnlineTrack>[];
+    for (final Object? e
+        in (json['onlineTracks'] as List<Object?>?) ?? const <Object?>[]) {
+      final OnlineTrack track = OnlineTrack.fromJson(_asMap(e));
+      if (track.id.isNotEmpty) online.add(track);
+    }
+    return BgmSetting(
+      volume: _asDouble(json['volume'], 0.6).clamp(0, 1).toDouble(),
+      customNames: _asStringList(json['customNames']),
+      onlineTracks: online,
+      index: _asInt(json['index']),
+      autoPlay: _asBool(json['autoPlay'], true),
+    );
+  }
 
   double volume;
   List<String> customNames;
+
+  /// 在线修仙电台曲目（网易云）。
+  List<OnlineTrack> onlineTracks;
   int index;
+
+  /// 启动后是否自动播放 BGM。
+  bool autoPlay;
 
   Map<String, Object?> toJson() => <String, Object?>{
     'volume': volume,
     'customNames': customNames,
+    'onlineTracks': onlineTracks.map((OnlineTrack t) => t.toJson()).toList(),
     'index': index,
+    'autoPlay': autoPlay,
   };
 }
 

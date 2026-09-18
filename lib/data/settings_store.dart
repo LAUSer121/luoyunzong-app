@@ -8,8 +8,16 @@ class SettingsStore {
   static const String _kApiToken = 'luoyunzong_api_token';
   static const String _kUseRemote = 'luoyunzong_use_remote';
   static const String _kMuted = 'luoyunzong_bgm_muted';
+  static const String _kNeteaseBase = 'luoyunzong_netease_base';
 
   Future<SharedPreferences> get _prefs => SharedPreferences.getInstance();
+
+  /// 网易云在线搜索代理地址（自建 NeteaseCloudMusicApi，用于绕过 Web 端跨域）。
+  Future<String> neteaseBase() async =>
+      (await _prefs).getString(_kNeteaseBase) ?? '';
+
+  Future<void> setNeteaseBase(String value) async =>
+      (await _prefs).setString(_kNeteaseBase, value.trim());
 
   Future<String> apiBaseUrl() async =>
       (await _prefs).getString(_kApiBaseUrl) ?? '';

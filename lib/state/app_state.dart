@@ -9,6 +9,7 @@ import '../core/constants.dart';
 import '../core/parsers.dart';
 import '../data/archive_codec.dart';
 import '../data/local_repository.dart';
+import '../data/netease_client.dart';
 import '../domain/models.dart';
 import '../domain/repository.dart';
 import 'bgm_controller.dart';
@@ -22,6 +23,9 @@ class AppState extends ChangeNotifier {
 
   /// BGM 播放控制器（曲单与存档同步）。
   final BgmController bgm = BgmController();
+
+  /// 网易云在线搜索客户端（可在设置里配置代理地址，解决 Web 端跨域）。
+  NeteaseClient netease = NeteaseClient();
 
   Archive archive;
 
@@ -68,6 +72,7 @@ class AppState extends ChangeNotifier {
       _ready = true;
       notifyListeners();
     }
+    bgm.netease = netease;
     bgm.bindPlayerEvents();
     // BGM 是附带能力：不阻塞启动，出错也不影响数据加载（各平台行为一致）。
     unawaited(
@@ -638,6 +643,39 @@ class AppState extends ChangeNotifier {
 
   void setBgmVolume(double volume) =>
       mutate((Archive a) => a.bgm.volume = volume.clamp(0, 1).toDouble());
+
+  /// 启动自动播放开关。
+  void setBgmAutoPlay(bool value) =>
+      mutate((Archive a) => a.bgm.autoPlay = value);
+
+  /// 是否允许启动后自动播放。
+  bool get bgmAutoPlay => archive.bgm.autoPlay;
+
+  /// 在线搜索客户端使用的代理地址（空表示直连官方接口）。
+  void setNeteaseBase(String apiBase) {
+    netease.close();
+    netease = NeteaseClient(apiBase: apiBase);
+    bgm.netease = netease;
+    notifyListeners();
+  }
+
+  /// 把在线曲目加入永久曲单。
+  void addOnlineTrack(OnlineTrack track) {
+    mutate((Archive a) {
+      if (a.bgm.onlineTracks.any((OnlineTrack t) => t.id == track.id)) return;
+      a.bgm.onlineTracks.add(track);
+    });
+    bgm.addOnlineTrack(track);
+  }
+
+  /// 从永久曲单移除在线曲目。
+  void removeOnlineTrack(String id) {
+    mutate(
+      (Archive a) =>
+          a.bgm.onlineTracks.removeWhere((OnlineTrack t) => t.id == id),
+    );
+    unawaited(bgm.syncFromArchive(archive));
+  }
 
   void setBgmIndex(int index) => mutate((Archive a) => a.bgm.index = index);
 

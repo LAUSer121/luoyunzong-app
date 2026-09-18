@@ -96,7 +96,10 @@ class _AppShellState extends State<AppShell> {
     if (_bgmStarted) return;
     _bgmStarted = true;
     final AppState state = context.read<AppState>();
-    WidgetsBinding.instance.addPostFrameCallback((_) => state.bgm.autoStart());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      // 尊重「启动自动播放」开关
+      if (state.bgmAutoPlay) state.bgm.autoStart();
+    });
   }
 
   void _go(int i) {
