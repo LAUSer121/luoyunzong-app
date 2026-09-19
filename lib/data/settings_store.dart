@@ -16,6 +16,7 @@ class SettingsStore {
   static const String _kAutoSync = 'luoyunzong_auto_sync';
   static const String _kLastSyncAt = 'luoyunzong_last_sync_at';
   static const String _kLastLocalChange = 'luoyunzong_last_local_change';
+  static const String _kShowOriginalName = 'luoyunzong_show_original_name';
 
   /// 构建期注入的默认服务端地址与令牌（未注入时为空串）。
   static const String bakedApiBase = String.fromEnvironment(
@@ -77,6 +78,13 @@ class SettingsStore {
 
   Future<void> setLastLocalChangeAt(DateTime at) async =>
       (await _prefs).setInt(_kLastLocalChange, at.millisecondsSinceEpoch);
+
+  /// 名单里是否显示「原名：xxx」（纯本机显示偏好，默认显示）。
+  Future<bool> showOriginalName() async =>
+      (await _prefs).getBool(_kShowOriginalName) ?? true;
+
+  Future<void> setShowOriginalName(bool value) async =>
+      (await _prefs).setBool(_kShowOriginalName, value);
 
   Future<bool> bgmMuted() async => (await _prefs).getBool(_kMuted) ?? false;
 

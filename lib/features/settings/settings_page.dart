@@ -905,8 +905,8 @@ class _SettingsPageState extends State<SettingsPage> {
                 onPressed: state.unlocked
                     ? () => _pickLocalBackground(state)
                     : null,
-                icon: const Icon(Icons.wallpaper_outlined, size: 18),
-                label: const Text('选择本地图片'),
+                icon: const Icon(Icons.add_photo_alternate_outlined, size: 18),
+                label: const Text('导入本地照片（相册）'),
               ),
               FilledButton.icon(
                 onPressed: _bgBusy ? null : () => _fetchOnlineBackground(state),
@@ -915,6 +915,52 @@ class _SettingsPageState extends State<SettingsPage> {
               ),
             ],
           ),
+          // ---- 背景相册：导入过的照片都在这儿，点一下就能切 ----
+          if (archive.background.gallery.isNotEmpty) ...<Widget>[
+            const SizedBox(height: 12),
+            Row(
+              children: <Widget>[
+                const Text(
+                  '我的背景相册',
+                  style: TextStyle(color: AppColors.gold, fontSize: 13),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  '${archive.background.gallery.length} 张 · 随存档同步到云端',
+                  style: const TextStyle(
+                    color: AppColors.textFaint,
+                    fontSize: 11,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            SizedBox(
+              height: 92,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                itemCount: archive.background.gallery.length,
+                separatorBuilder: (_, _) => const SizedBox(width: 10),
+                itemBuilder: (BuildContext ctx, int i) {
+                  final String photo = archive.background.gallery[i];
+                  final bool current = archive.background.data == photo;
+                  return _bgThumb(
+                    photo: photo,
+                    current: current,
+                    canDelete: state.unlocked,
+                    onTap: () {
+                      state.selectBackgroundPhoto(photo);
+                      _toast('已切换到这张背景');
+                    },
+                    onDelete: () {
+                      state.removeBackgroundPhoto(photo);
+                      _toast('已从相册移除');
+                    },
+                  );
+                },
+              ),
+            ),
+          ],
           const SizedBox(height: 6),
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
@@ -963,10 +1009,11 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
+  /// 导入本地照片：存进「背景相册」并立刻设为当前背景（照片随存档同步到云端）。
   Future<void> _pickLocalBackground(AppState state) async {
     final PickedBytes? picked = await pickBytes(
       extensions: <String>['png', 'jpg', 'jpeg', 'webp', 'bmp'],
-      dialogTitle: '选择背景图片',
+      dialogTitle: '选择背景照片',
     );
     if (picked == null) return;
     final String? data = compressImageToDataUrl(
@@ -978,8 +1025,113 @@ class _SettingsPageState extends State<SettingsPage> {
       _toast('图片读取失败');
       return;
     }
-    state.setBackgroundImage(data);
-    _toast('背景已更换');
+    state.addBackgroundPhoto(data);
+    _toast('已导入背景相册并设为当前背景（会随存档同步到云端）');
+  }
+
+  /// 相册缩略图：点一下切换，右上角小叉删除（仅管理员）。
+  Widget _bgThumb({
+    required String photo,
+    required bool current,
+    required bool canDelete,
+    required VoidCallback onTap,
+    required VoidCallback onDelete,
+  }) {
+    final Uint8List? bytes = dataUrlToBytes(photo);
+    return Stack(
+      clipBehavior: Clip.none,
+      children: <Widget>[
+        Tooltip(
+          message: current ? '当前背景' : '点一下用这张',
+          child: InkWell(
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(10),
+            child: Container(
+              width: 148,
+              height: 84,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(
+                  color: current ? AppColors.gold : AppColors.outline,
+                  width: current ? 2 : 1,
+                ),
+                color: const Color(0x33101A2E),
+                boxShadow: current
+                    ? <BoxShadow>[
+                        BoxShadow(
+                          color: AppColors.gold.withValues(alpha: 0.28),
+                          blurRadius: 12,
+                          spreadRadius: -3,
+                        ),
+                      ]
+                    : null,
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: bytes == null
+                  ? const Center(
+                      child: Icon(
+                        Icons.image_not_supported_outlined,
+                        size: 18,
+                        color: AppColors.textFaint,
+                      ),
+                    )
+                  : Image.memory(
+                      bytes,
+                      fit: BoxFit.cover,
+                      gaplessPlayback: true,
+                    ),
+            ),
+          ),
+        ),
+        if (current)
+          Positioned(
+            left: 6,
+            bottom: 6,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+              decoration: BoxDecoration(
+                color: const Color(0xCC0B1226),
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(
+                  color: AppColors.gold.withValues(alpha: 0.6),
+                ),
+              ),
+              child: const Text(
+                '当前',
+                style: TextStyle(color: AppColors.gold, fontSize: 10),
+              ),
+            ),
+          ),
+        if (canDelete)
+          Positioned(
+            right: -6,
+            top: -6,
+            child: Tooltip(
+              message: '从相册移除',
+              child: InkWell(
+                onTap: onDelete,
+                customBorder: const CircleBorder(),
+                child: Container(
+                  width: 22,
+                  height: 22,
+                  decoration: BoxDecoration(
+                    color: const Color(0xF21B2030),
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: AppColors.danger.withValues(alpha: 0.7),
+                    ),
+                  ),
+                  child: const Icon(
+                    Icons.close_rounded,
+                    size: 14,
+                    color: AppColors.danger,
+                  ),
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
   }
 
   Future<void> _fetchOnlineBackground(AppState state, {String? query}) async {

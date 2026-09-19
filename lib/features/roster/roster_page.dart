@@ -526,11 +526,25 @@ class _RosterPageState extends State<RosterPage> {
       padding: const EdgeInsets.fromLTRB(14, 8, 14, 14),
       child: Column(
         children: <Widget>[
-          const Padding(
-            padding: EdgeInsets.only(top: 8, bottom: 4),
+          Padding(
+            padding: const EdgeInsets.only(top: 8, bottom: 4),
             child: SectionTitle(
               '成员名册',
               subtitle: '按职务权重排序，前三名金银铜高亮；「备注」填了就直接当姓名显示',
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  const Text(
+                    '显示原名',
+                    style: TextStyle(color: AppColors.textFaint, fontSize: 12),
+                  ),
+                  Switch(
+                    value: state.showOriginalName,
+                    onChanged: state.setShowOriginalName,
+                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                ],
+              ),
             ),
           ),
           SingleChildScrollView(
@@ -600,7 +614,9 @@ class _RosterPageState extends State<RosterPage> {
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
               MedalName(m.displayName, i),
-              if (m.remark.isNotEmpty && m.remark != m.name)
+              if (state.showOriginalName &&
+                  m.remark.isNotEmpty &&
+                  m.remark != m.name)
                 Padding(
                   padding: const EdgeInsets.only(top: 2),
                   child: Text(

@@ -120,19 +120,31 @@ AssetSplit splitAssets(Archive archive, {int thresholdBytes = 48 * 1024}) {
     p.avatar = refFor(p.avatar);
   }
   final BackgroundSetting bg = copy.background;
-  if (bg.type == BgType.image && bg.data != null) {
-    final String? ref = refFor(bg.data);
-    if (ref != bg.data) {
-      copy.background = BackgroundSetting(
-        type: BgType.image,
-        data: ref,
-        credit: bg.credit,
-        autoOnline: bg.autoOnline,
-      );
-    }
+  final String? bgRef = bg.data == null ? null : refFor(bg.data);
+  final List<String> galleryRefs = bg.gallery
+      .map(refFor)
+      .whereType<String>()
+      .toList();
+  if (bgRef != bg.data || !_sameList(galleryRefs, bg.gallery)) {
+    copy.background = BackgroundSetting(
+      type: bg.type,
+      key: bg.key,
+      data: bgRef,
+      credit: bg.credit,
+      autoOnline: bg.autoOnline,
+      gallery: galleryRefs,
+    );
   }
 
   return AssetSplit(archive: copy, assets: assets.values.toList());
+}
+
+bool _sameList(List<String> a, List<String> b) {
+  if (a.length != b.length) return false;
+  for (int i = 0; i < a.length; i++) {
+    if (a[i] != b[i]) return false;
+  }
+  return true;
 }
 
 /// 用已下载的资源把引用还原成 data URL；缺失的资源保持引用不变（界面显示占位符）。
@@ -156,16 +168,20 @@ Archive restoreAssets(Archive archive, Map<String, Uint8List> assets) {
     p.avatar = restore(p.avatar);
   }
   final BackgroundSetting bg = copy.background;
-  if (bg.type == BgType.image && bg.data != null) {
-    final String? data = restore(bg.data);
-    if (data != bg.data) {
-      copy.background = BackgroundSetting(
-        type: BgType.image,
-        data: data,
-        credit: bg.credit,
-        autoOnline: bg.autoOnline,
-      );
-    }
+  final String? bgData = bg.data == null ? null : restore(bg.data);
+  final List<String> gallery = bg.gallery
+      .map(restore)
+      .whereType<String>()
+      .toList();
+  if (bgData != bg.data || !_sameList(gallery, bg.gallery)) {
+    copy.background = BackgroundSetting(
+      type: bg.type,
+      key: bg.key,
+      data: bgData,
+      credit: bg.credit,
+      autoOnline: bg.autoOnline,
+      gallery: gallery,
+    );
   }
   return copy;
 }
@@ -187,6 +203,9 @@ Set<String> referencedAssetIds(Archive archive) {
     add(p.avatar);
   }
   add(archive.background.data);
+  for (final String photo in archive.background.gallery) {
+    add(photo);
+  }
   return ids;
 }
 

@@ -47,6 +47,22 @@ class AppState extends ChangeNotifier {
   int get videoMaxBytes => videoMaxMB * 1024 * 1024;
   int get imageMaxBytes => imageMaxMB * 1024 * 1024;
 
+  /// 名单里是否显示「原名：xxx」（纯本机显示偏好，保存到设备本地）。
+  bool showOriginalName = true;
+
+  Future<void> loadLocalUiPrefs() async {
+    final SettingsStore? store = settings;
+    if (store == null) return;
+    showOriginalName = await store.showOriginalName();
+    notifyListeners();
+  }
+
+  void setShowOriginalName(bool value) {
+    showOriginalName = value;
+    unawaited(settings?.setShowOriginalName(value) ?? Future<void>.value());
+    notifyListeners();
+  }
+
   /// 从服务端刷新上传上限（启动时、以及管理员保存后调用）。
   Future<void> refreshUploadLimits() async {
     final ApiClient? client = cloudClient;
@@ -747,12 +763,63 @@ class AppState extends ChangeNotifier {
       type: BgType.image,
       data: dataUrl,
       autoOnline: a.background.autoOnline,
+      gallery: _withPhoto(a.background.gallery, dataUrl),
     ),
   );
 
+  /// 导入一张本地/在线照片到「背景相册」并立刻设为当前背景。
+  void addBackgroundPhoto(String dataUrl, {bool apply = true}) =>
+      mutate((Archive a) {
+        final List<String> gallery = _withPhoto(a.background.gallery, dataUrl);
+        a.background = BackgroundSetting(
+          type: apply ? BgType.image : a.background.type,
+          key: apply ? null : a.background.key,
+          data: apply ? dataUrl : a.background.data,
+          credit: a.background.credit,
+          autoOnline: a.background.autoOnline,
+          gallery: gallery,
+        );
+      });
+
+  /// 从相册里选一张当背景。
+  void selectBackgroundPhoto(String dataUrl) => mutate(
+    (Archive a) => a.background = BackgroundSetting(
+      type: BgType.image,
+      data: dataUrl,
+      credit: a.background.credit,
+      autoOnline: a.background.autoOnline,
+      gallery: a.background.gallery,
+    ),
+  );
+
+  /// 从相册里删掉一张（如果删的正是当前背景，就回落到默认背景）。
+  void removeBackgroundPhoto(String dataUrl) => mutate((Archive a) {
+    final List<String> gallery = List<String>.of(a.background.gallery)
+      ..remove(dataUrl);
+    final bool isCurrent = a.background.data == dataUrl;
+    a.background = BackgroundSetting(
+      type: isCurrent ? null : a.background.type,
+      key: isCurrent ? null : a.background.key,
+      data: isCurrent ? null : a.background.data,
+      credit: a.background.credit,
+      autoOnline: a.background.autoOnline,
+      gallery: gallery,
+    );
+  });
+
+  /// 相册里没有就追加（相同照片只留一张）。
+  static List<String> _withPhoto(List<String> gallery, String dataUrl) {
+    if (gallery.contains(dataUrl)) return gallery;
+    // 最多留 12 张，避免存档无限膨胀
+    final List<String> next = <String>[...gallery, dataUrl];
+    return next.length > 12 ? next.sublist(next.length - 12) : next;
+  }
+
   void resetBackground() => mutate(
-    (Archive a) =>
-        a.background = BackgroundSetting(autoOnline: a.background.autoOnline),
+    (Archive a) => a.background = BackgroundSetting(
+      autoOnline: a.background.autoOnline,
+      gallery: a.background.gallery,
+    ),
   );
 
   /// 启动时自动获取在线背景的开关。

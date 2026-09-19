@@ -528,18 +528,24 @@ class BackgroundSetting {
     this.data,
     this.credit = '',
     this.autoOnline = false,
-  }) : assert(type != BgType.preset || key != null, '预设背景必须带 key');
+    List<String>? gallery,
+  }) : assert(type != BgType.preset || key != null, '预设背景必须带 key'),
+       gallery = gallery ?? <String>[];
 
   factory BackgroundSetting.fromJson(Map<String, Object?> json) {
     final String t = _asString(json['type'], 'default');
     final String credit = _asString(json['credit']);
     final bool autoOnline = _asBool(json['autoOnline']);
+    final List<String> gallery = _asStringList(json['gallery'])
+        .where((String s) => s.isNotEmpty)
+        .toList();
     if (t == 'preset') {
       return BackgroundSetting(
         type: BgType.preset,
         key: _asString(json['key']),
         credit: credit,
         autoOnline: autoOnline,
+        gallery: gallery,
       );
     }
     if (t == 'image') {
@@ -548,9 +554,14 @@ class BackgroundSetting {
         data: _nullIfEmpty(json['data']),
         credit: credit,
         autoOnline: autoOnline,
+        gallery: gallery,
       );
     }
-    return BackgroundSetting(credit: credit, autoOnline: autoOnline);
+    return BackgroundSetting(
+      credit: credit,
+      autoOnline: autoOnline,
+      gallery: gallery,
+    );
   }
 
   factory BackgroundSetting.defaults() => BackgroundSetting();
@@ -564,6 +575,10 @@ class BackgroundSetting {
 
   /// 启动时是否自动从网上获取一张仙侠背景。
   final bool autoOnline;
+
+  /// 自己导入的背景照片（存 data URL / `asset:<id>` 引用），可随时切换。
+  /// 随存档保存，因此会同步到云端与其它设备。
+  final List<String> gallery;
 
   bool get isDefault => type == null;
 
@@ -580,6 +595,7 @@ class BackgroundSetting {
     String? credit,
     bool? autoOnline,
     bool clearImage = false,
+    List<String>? gallery,
   }) {
     return BackgroundSetting(
       type: type,
@@ -587,6 +603,7 @@ class BackgroundSetting {
       data: clearImage ? null : (data ?? this.data),
       credit: credit ?? this.credit,
       autoOnline: autoOnline ?? this.autoOnline,
+      gallery: gallery ?? this.gallery,
     );
   }
 
@@ -594,6 +611,7 @@ class BackgroundSetting {
     final Map<String, Object?> base = <String, Object?>{
       'credit': credit,
       'autoOnline': autoOnline,
+      if (gallery.isNotEmpty) 'gallery': gallery,
     };
     if (type == BgType.preset) {
       return <String, Object?>{...base, 'type': 'preset', 'key': key};
