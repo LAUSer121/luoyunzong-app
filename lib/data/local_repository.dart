@@ -16,7 +16,7 @@ class LocalRepository implements LuoyunRepository {
   final StreamController<void> _changes = StreamController<void>.broadcast();
 
   @override
-  String get label => _backend.description;
+  String get label => '本地存档';
 
   /// 存档位置（Web 端为 `null`）。
   Future<String?> location() => _backend.location();

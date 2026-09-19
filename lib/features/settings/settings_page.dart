@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../core/app_config.dart';
 import '../../core/constants.dart';
 import '../../core/file_utils.dart';
 import '../../core/image_utils.dart';
@@ -509,17 +510,49 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
+  /// 数据源卡片：
+  /// - 默认只显示一个状态行（云端同步 / 本地存档），**不暴露任何服务端地址或数据库信息**；
+  /// - 仅当打包时加了 --dart-define=LUOYUNZONG_SHOW_SERVER_CONFIG=true，才在解锁后出现可编辑配置。
   Widget _dataSourceCard(AppState state) {
+    final bool cloud = state.storageLabel.contains('云端');
+    if (!AppConfig.showServerConfig) {
+      return GlassCard(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            const SectionTitle('数据存储', subtitle: '存档与资源自动保存，无需手动操作'),
+            Row(
+              children: <Widget>[
+                Icon(
+                  cloud ? Icons.cloud_done_outlined : Icons.smartphone_outlined,
+                  size: 20,
+                  color: cloud ? AppColors.jade : AppColors.goldDeep,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    cloud
+                        ? '云端同步已开启（断网时自动回落本地存档，恢复后继续同步）'
+                        : '当前使用本地存档（数据保存在本机，可导出备份）',
+                    style: const TextStyle(
+                      color: AppColors.text,
+                      fontSize: 13,
+                      height: 1.7,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      );
+    }
+
     return GlassCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          SectionTitle(
-            '数据源（MySQL 云同步）',
-            subtitle:
-                '当前：${state.storageLabel}'
-                '${SettingsStore.bakedApiBase.isEmpty ? '' : ' · 构建时已内置服务端地址'}',
-          ),
+          SectionTitle('数据源（调试入口）', subtitle: '当前：${state.storageLabel}'),
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
             value: _useRemote,
@@ -530,9 +563,9 @@ class _SettingsPageState extends State<SettingsPage> {
                     _toast(v ? '已开启云端同步（重启后生效）' : '已切回本地模式（重启后生效）');
                   }
                 : null,
-            title: const Text('使用云端 MySQL 同步', style: TextStyle(fontSize: 14)),
+            title: const Text('使用云端同步', style: TextStyle(fontSize: 14)),
             subtitle: const Text(
-              '存档与资源（头像/立绘/背景/视频）保存到服务端；断网自动回落本地存档',
+              '存档与资源保存到服务端；断网自动回落本地存档',
               style: TextStyle(fontSize: 12, color: AppColors.textFaint),
             ),
           ),

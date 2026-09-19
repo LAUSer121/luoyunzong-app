@@ -15,6 +15,14 @@ on:
 env:
   FLUTTER_VERSION: '3.47.4'
   JAVA_VERSION: '17'
+  # 云端同步：在仓库 Settings → Variables/Secrets 里配置这两项后，
+  # 构建出的单文件默认走云端（应用界面不显示任何服务地址/数据库信息）。
+  # 未配置时值为空字符串，应用自动使用本地存档。
+  API_BASE: ${{ vars.LUOYUNZONG_API_BASE }}
+  API_TOKEN: ${{ secrets.LUOYUNZONG_API_TOKEN }}
+  DART_DEFINES: >-
+    --dart-define=LUOYUNZONG_API_BASE=${{ vars.LUOYUNZONG_API_BASE }}
+    --dart-define=LUOYUNZONG_API_TOKEN=${{ secrets.LUOYUNZONG_API_TOKEN }}
 
 jobs:
   # ------------------------------------------------------------------
@@ -64,7 +72,7 @@ jobs:
         run: flutter pub get
 
       - name: Build ${{ matrix.target }}
-        run: flutter build ${{ matrix.target }} --release
+        run: flutter build ${{ matrix.target }} --release ${{ env.DART_DEFINES }}
 
       - name: Make portable single-file (Windows)
         if: matrix.target == 'windows'
@@ -109,7 +117,7 @@ jobs:
       - run: flutter pub get
 
       - name: Build APK (single file, all ABIs)
-        run: flutter build apk --release
+        run: flutter build apk --release ${{ env.DART_DEFINES }}
 
       - name: Rename APK
         run: |
@@ -137,7 +145,7 @@ jobs:
       - run: flutter pub get
 
       - name: Build iOS without codesign
-        run: flutter build ios --release --no-codesign
+        run: flutter build ios --release --no-codesign ${{ env.DART_DEFINES }}
 
       - name: Package unsigned .ipa (single file)
         run: |
@@ -172,7 +180,7 @@ jobs:
       - run: flutter pub get
 
       - name: Build web (bundled CanvasKit, no CDN)
-        run: flutter build web --release --no-web-resources-cdn
+        run: flutter build web --release --no-web-resources-cdn ${{ env.DART_DEFINES }}
 
       - name: Inline everything into one html
         run: dart run tool/inline_web.dart build/web dist/luoyunzong.html

@@ -24,7 +24,7 @@ class ApiRepository implements LuoyunRepository {
   bool _offline = false;
 
   @override
-  String get label => _offline ? '${client.baseUrl}（离线兜底）' : client.baseUrl;
+  String get label => _offline ? '云端同步（离线，已回落本地）' : '云端同步';
 
   bool get isOffline => _offline;
 
