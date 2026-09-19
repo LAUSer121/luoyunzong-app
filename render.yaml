@@ -1,5 +1,18 @@
-# Render 免费部署（无需买服务器；Render 能直连 Aiven MySQL）
-# 用法：把仓库推到 GitHub → Render → New → Blueprint → 选本仓库 → 自动读这个文件
+# Render 免费部署（把服务端从「你的电脑」搬到常开的云端）
+#
+# 为什么需要：数据库（Aiven）和图片（缤纷云）本来就在云端，
+# 但读写它们的那个 Node 接口进程原先跑在你电脑上 —— 电脑一关，别的设备就同步不了。
+# 把这个进程放到 Render 免费档，电脑关机也能用。
+#
+# 用法（两种任选）：
+#   A. 点几下：Render → New → Blueprint → 选本仓库 → 填下面标了 sync:false 的变量 → Deploy
+#   B. 用 API Key 一键创建：见 docs/deploy-paas.md（把 Key 给我，我代做）
+#
+# 说明：
+# - 资源存储（缤纷云 / 又拍云）的配置存在数据库 app_settings 里（App 里配过就生效），
+#   所以这里**不需要**再填 STORAGE_DRIVER 那组变量；
+#   PaaS 的磁盘是临时的，务必用对象存储（缤纷云），别用 local。
+# - 免费档闲置会休眠，第一次访问要等十几秒唤醒；App 会自动重试并回落本地，不丢数据。
 services:
   - type: web
     name: luoyunzong-api
@@ -7,31 +20,26 @@ services:
     dockerfilePath: ./server/Dockerfile
     dockerContext: ./server
     plan: free
+    region: singapore
     healthCheckPath: /api/health
+    autoDeploy: true
     envVars:
-      - key: API_TOKEN
-        sync: false # 在 Render 面板里填（与 App 内置令牌一致）
       - key: ORG_ID
         value: default
       - key: DB_HOST
-        sync: false
+        value: mysql-3818918f-jsjsjsnxjns-6e11.g.aivencloud.com
       - key: DB_PORT
         value: '23483'
       - key: DB_USER
         value: avnadmin
-      - key: DB_PASSWORD
-        sync: false
       - key: DB_NAME
         value: defaultdb
       - key: DB_SSL
         value: 'true'
-      - key: STORAGE_DRIVER
-        value: local # 视频多了再换 upyun / s3
-      - key: UPYUN_BUCKET
-        value: my-media
-      - key: UPYUN_OPERATOR
-        value: mymedia
-      - key: UPYUN_PASSWORD
+      - key: MAX_UPLOAD_MB
+        value: '512'
+      # 两个密钥：在 Render 面板里填（值见 server/.env）
+      - key: DB_PASSWORD
         sync: false
-      - key: UPYUN_DOMAIN
+      - key: API_TOKEN
         sync: false
