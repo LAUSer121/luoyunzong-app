@@ -29,6 +29,20 @@ app.use((req, res, next) => {
   next();
 });
 
+// ---- 访问日志（便于确认客户端是否连上；不含敏感信息）----
+app.use((req, res, next) => {
+  const started = Date.now();
+  res.on('finish', () => {
+    console.log(
+      `[api] ${req.method} ${req.path} ${res.statusCode} ${Date.now() - started}ms` +
+        (req.headers['user-agent']
+          ? ` ua=${String(req.headers['user-agent']).slice(0, 32)}`
+          : ''),
+    );
+  });
+  next();
+});
+
 // ---- 鉴权 ----
 function auth(req, res, next) {
   if (!TOKEN) return next(); // 未配置令牌则不校验（仅本机/内网调试）

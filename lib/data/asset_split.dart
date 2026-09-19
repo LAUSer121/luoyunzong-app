@@ -75,17 +75,22 @@ String? assetRefId(String? value) {
   }
 }
 
-/// 资源 id：内容哈希（FNV-1a 64 位 + 长度），相同内容天然去重。
+/// 资源 id：内容哈希（两个 31 位哈希 + 长度），相同内容天然去重。
 ///
-/// 用内置哈希而不是引入 crypto 依赖；对「资源去重」这个用途足够了。
+/// 注意必须用 **31 位**运算：Web 端 dart2js 的整数只有 53 位安全范围，
+/// 64 位字面量（如 FNV-1a 的 0xcbf29ce484222325）会直接编译失败。
+/// 这里用 djb2 与 sdbm 各算一遍（一个正序一个倒序），中间量都 < 2^47，安全。
 String assetIdOf(Uint8List bytes) {
-  int hash = 0xcbf29ce484222325;
+  int djb2 = 5381; // djb2 种子
   for (final int b in bytes) {
-    hash ^= b;
-    hash = (hash * 0x100000001b3) & 0xFFFFFFFFFFFFFFFF;
+    djb2 = ((djb2 * 33) ^ b) & 0x7FFFFFFF;
   }
-  final String hex = hash.toRadixString(16).padLeft(16, '0');
-  return '$hex${bytes.length.toRadixString(16)}';
+  int sdbm = 0;
+  for (int i = bytes.length - 1; i >= 0; i--) {
+    sdbm = (bytes[i] + (sdbm << 6) + (sdbm << 16) - sdbm) & 0x7FFFFFFF;
+  }
+  String hex8(int v) => v.toRadixString(16).padLeft(8, '0');
+  return '${hex8(djb2)}${hex8(sdbm)}${bytes.length.toRadixString(16)}';
 }
 
 /// 把存档里超过 [thresholdBytes] 的资源拆出来；小于阈值的保持内联（省一次请求）。
