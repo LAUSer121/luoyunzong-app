@@ -7,7 +7,11 @@
     <application
         android:label="落云宗"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:usesCleartextTraffic="true">
+        <!-- usesCleartextTraffic：云端同步要能连「家里电脑/本机」上的
+             http://192.168.x.x:8080（Android 9+ 默认禁止明文 HTTP）；
+             公网服务地址一律使用 https，不受影响。 -->
         <activity
             android:name=".MainActivity"
             android:exported="true"

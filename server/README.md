@@ -10,6 +10,43 @@
 
 ## 一、快速开始
 
+### 最省事：直接在这台电脑上跑（Windows，零成本）
+
+数据其实存在 Aiven MySQL 里，这台电脑只跑一个接口进程；电脑开着的时候，
+本机 App 与**家里同一个 Wi-Fi 下的手机**都能连上同步。
+
+```powershell
+cd server
+copy .env.example .env        # 填 Aiven 参数（只需一次）
+npm install                   # 只需一次
+
+# 前台运行（关掉窗口就停）
+powershell -File server\start-server.ps1
+
+# 开机自动后台运行 + 放行防火墙（手机要连必须放行，建议管理员运行）
+powershell -File server\start-server.ps1 -Install
+
+# 看状态：进程在不在、数据库通不通、本机可用的同步地址
+powershell -File server\start-server.ps1 -Status
+```
+
+把 `-Status` 打印的局域网地址配进构建（多个地址用逗号分隔，App 会按顺序探测）：
+
+```powershell
+gh variable set LUOYUNZONG_API_BASE --body "http://127.0.0.1:8080,http://192.168.1.15:8080"
+gh workflow run build.yml --ref main
+```
+
+一份安装包同时覆盖「电脑上双击即用」（走 `127.0.0.1`）和「手机在家连同一台电脑」
+（走局域网地址）。手机在**外网**时连不上，App 自动回落本地存档继续可用，
+回家后自动同步补齐，不会丢数据。
+
+> 局域网地址由路由器 DHCP 分配，换网络/重启路由可能变；变了就再跑一次
+> `-Status` 拿新地址，更新仓库变量后重新构建即可。
+> Windows 防火墙放行需要管理员权限，脚本会自动尝试并给出提示。
+
+### 传统方式（在 server/ 目录直接起）
+
 ```bash
 cd server
 cp .env.example .env      # 填 Aiven 与又拍云参数
@@ -104,7 +141,8 @@ flutter build windows --release \
   --dart-define=LUOYUNZONG_API_TOKEN=你的令牌
 ```
 
-CI 里对应加两个 secrets（`API_BASE`、`API_TOKEN`）传给 `--dart-define` 即可。
+CI 里对应加两个变量（`LUOYUNZONG_API_BASE`、`LUOYUNZONG_API_TOKEN`）传给 `--dart-define` 即可；
+`LUOYUNZONG_API_BASE` 支持逗号分隔的多个候选地址（App 启动时按顺序探测连通性）。
 
 ---
 

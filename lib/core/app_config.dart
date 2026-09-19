@@ -4,16 +4,23 @@
 ///   --dart-define=LUOYUNZONG_API_BASE=https://api.example.com
 ///   --dart-define=LUOYUNZONG_API_TOKEN=xxxx
 ///
+/// 地址可以写**多个**（逗号分隔），应用启动时按顺序探测，谁通用谁：
+///   --dart-define=LUOYUNZONG_API_BASE=http://127.0.0.1:8080,http://192.168.1.15:8080
+/// 这样同一份安装包在「本机跑服务端」的电脑上和「家里同一个 Wi-Fi」的手机上都能连上。
+///
 /// 说明：数据库账号密码**只存在服务器的 .env**，应用里没有、也不会显示；
 /// 界面只呈现「云端同步 / 本地存档」这类状态，不暴露地址与令牌。
 /// 需要临时排查时，用 --dart-define=LUOYUNZONG_SHOW_SERVER_CONFIG=true 打包，
 /// 设置页才会在解锁后出现可编辑的数据源配置。
 library;
 
+import 'package:flutter/foundation.dart';
+
 class AppConfig {
   const AppConfig._();
 
   /// 构建期写入的云端服务地址（空 = 未配置，走本地存档）。
+  /// 支持逗号/分号/空白分隔的多个候选地址。
   static const String apiBase = String.fromEnvironment('LUOYUNZONG_API_BASE');
 
   /// 构建期写入的访问令牌。
@@ -27,13 +34,28 @@ class AppConfig {
   /// 是否具备云端能力。
   static bool get hasCloud => apiBase.trim().isNotEmpty;
 
-  /// 连接候选：构建期地址优先，其次本机（方便开发时本机跑服务端联调）。
+  /// 手机端不会自己跑服务端，不必尝试回环地址。
+  static bool get _isMobile =>
+      !kIsWeb &&
+      (defaultTargetPlatform == TargetPlatform.android ||
+          defaultTargetPlatform == TargetPlatform.iOS);
+
+  /// 连接候选：构建期注入的地址（可多个）优先，其次本机回环（桌面/网页本地联调）。
   static List<String> get apiCandidates {
     final List<String> list = <String>[];
-    if (apiBase.trim().isNotEmpty) list.add(apiBase.trim());
-    // 开发/内网联调兜底：仅在未注入地址时尝试
-    if (list.isEmpty) {
-      list.add('http://127.0.0.1:8080');
+    void add(String raw) {
+      final String value = raw.trim();
+      if (value.isEmpty || list.contains(value)) return;
+      list.add(value);
+    }
+
+    for (final String part in apiBase.split(RegExp(r'[,;\s]+'))) {
+      add(part);
+    }
+    // 桌面端/网页端本地联调兜底：本机跑着 server/ 时无需额外配置。
+    if (!_isMobile) {
+      add('http://127.0.0.1:8080');
+      add('http://localhost:8080');
     }
     return list;
   }
