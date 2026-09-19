@@ -34,18 +34,36 @@ class ApiRepository implements LuoyunRepository {
   @override
   Future<Archive?> load() async {
     try {
-      final Archive? remote = await client.fetchArchive();
+      final ({Archive? archive, int revision, DateTime? updatedAt}) meta =
+          await loadMeta();
       _offline = false;
-      if (remote == null) return null;
-      // 存档里的大资源以 `asset:<id>` 引用存在，按需从服务端资源表还原成 data URL。
-      final Set<String> ids = referencedAssetIds(remote);
-      if (ids.isEmpty) return remote;
-      final Map<String, Uint8List> assets = await client.fetchAssets(ids);
-      return restoreAssets(remote, assets);
+      return meta.archive;
     } on Object {
       _offline = true;
       return fallback?.load();
     }
+  }
+
+  /// 读取云端存档并附带版本信息（云同步用：判断云端是否比我这边新）。
+  Future<({Archive? archive, int revision, DateTime? updatedAt})>
+  loadMeta() async {
+    final ({Archive? archive, int revision, DateTime? updatedAt}) meta =
+        await client.fetchArchiveMeta();
+    final Archive? remote = meta.archive;
+    if (remote == null) return meta;
+    return (
+      archive: await restoreAssetsOf(remote),
+      revision: meta.revision,
+      updatedAt: meta.updatedAt,
+    );
+  }
+
+  /// 把存档里的大资源（`asset:<id>` 引用）还原成内嵌 data URL。
+  Future<Archive> restoreAssetsOf(Archive remote) async {
+    final Set<String> ids = referencedAssetIds(remote);
+    if (ids.isEmpty) return remote;
+    final Map<String, Uint8List> assets = await client.fetchAssets(ids);
+    return restoreAssets(remote, assets);
   }
 
   @override

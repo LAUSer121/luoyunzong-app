@@ -75,3 +75,42 @@ abstract class LuoyunRepository {
 - `test/` 覆盖纯逻辑：批量名单解析、成绩解析、分数段统计、两场对比、境界排序、
   旧存档编解码与迁移。UI 用 widget test 覆盖关键页面能渲染出空态与数据态。
 - CI 中 `flutter analyze` + `flutter test` 作为所有平台构建的前置门禁。
+- `test/e2e_sync_live_test.dart` 是**真机联调**用的云同步 E2E（默认 skip）；
+  本地起好 `server/` 后设 `LUOYUNZONG_E2E=1`、`LUOYUNZONG_E2E_TOKEN=...` 再跑。
+
+## 7. 云同步（本地 ⇄ 云端）
+
+`SyncManager`（`lib/state/sync_manager.dart`）负责把「本机存档」和「云端存档」
+对齐，界面只暴露两个动作：**自动同步开关** 与 **立即同步**。
+
+| 情况 | 行为 |
+| --- | --- |
+| 云端没有存档 | 本地整包推上去（本地不动） |
+| 两边内容相同（按资源哈希比较） | 不传数据，只对齐时间戳 |
+| 本地改动时间更晚 | 推送；覆盖前把云端那份写进本机快照 |
+| 云端更新时间更晚 | 拉取；覆盖前把本地那份写进本机快照 |
+| 时间戳打平但内容不同 | 保留本机版本并推上去，云端那份写进快照 |
+
+- **冲突不留死角**：被覆盖的一方永远先落到本机快照
+  （`LocalRepository.writeSnapshot` → `luoyunzong_archive.snapshot.json`），
+  设置页可一键「恢复上次同步前的备份」。
+- **比较方式**：两边都先过一遍 `splitAssets`，大资源变成 `asset:<内容哈希>`。
+  资源 id 是内容哈希，所以同一份字节在两边必然得到同一个引用；这样即使
+  云端拉回来的 data URL MIME 是嗅探出来的，也不会被误判成「内容不同」。
+- **自动同步只在本机生效**：开关、上次同步时间、最后改动时间都存在
+  `SettingsStore`（SharedPreferences），**不写进存档**，因此不会跟着云端跑到
+  其他设备；默认关闭，开启后立即对齐一次，并每 45 秒轮询一次（本地改动
+  另有 4 秒防抖推送）。
+- **离线可用**：云端不可达时归类为 `SyncAction.offline`，不报错、不改数据，
+  界面显示「云端暂不可达，稍后会自动重试」；应用始终能纯本地运行。
+
+## 8. 测试与联调速查
+
+```powershell
+# 1) 起本地服务端（.env 在 server/ 下，dotenv 按当前目录加载）
+cd server; node index.mjs
+# 2) 云同步 E2E（真连服务端与 MySQL）
+$env:LUOYUNZONG_E2E='1'; $env:LUOYUNZONG_E2E_TOKEN='<API_TOKEN>'
+flutter test test/e2e_sync_live_test.dart
+```
+

@@ -17,6 +17,7 @@ import '../../data/settings_store.dart';
 import '../../data/wallpaper_client.dart';
 import '../../domain/models.dart';
 import '../../state/app_state.dart';
+import '../../state/sync_manager.dart';
 import '../../widgets/admin_bar.dart';
 import '../../widgets/glass_card.dart';
 import '../../widgets/page_body.dart';
@@ -106,11 +107,133 @@ class _SettingsPageState extends State<SettingsPage> {
         const SizedBox(height: 16),
         _archiveCard(state, unlocked),
         const SizedBox(height: 16),
+        _syncCard(state),
         _dataSourceCard(state),
         const SizedBox(height: 16),
         _aboutCard(state),
       ],
     );
+  }
+
+  /// 云同步卡片：把本地改动同步到云端、把云端信息同步回本机。
+  ///
+  /// 「自动同步」开关与上次同步时间保存在**本机设备**（不随存档同步到其他设备），
+  /// 卡片里不出现任何服务端地址、数据库等细节。
+  Widget _syncCard(AppState state) {
+    final SyncManager? sync = state.sync;
+    if (sync == null) return const SizedBox.shrink();
+    return ListenableBuilder(
+      listenable: sync,
+      builder: (BuildContext context, Widget? _) {
+        final bool failed = sync.lastFailed;
+        return GlassCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              const SectionTitle('云端同步', subtitle: '本地修改上传云端 · 云端信息同步到本机'),
+              Row(
+                children: <Widget>[
+                  Icon(
+                    sync.syncing
+                        ? Icons.sync
+                        : failed
+                        ? Icons.cloud_off_outlined
+                        : Icons.cloud_done_outlined,
+                    size: 20,
+                    color: failed
+                        ? AppColors.danger
+                        : (sync.syncing ? AppColors.goldDeep : AppColors.jade),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      sync.statusLabel,
+                      style: TextStyle(
+                        color: failed ? AppColors.danger : AppColors.text,
+                        fontSize: 13,
+                        height: 1.7,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                value: sync.autoSync,
+                onChanged: (bool v) async {
+                  await sync.setAutoSync(v);
+                  _toast(v ? '已开启自动同步云端' : '已关闭自动同步');
+                },
+                title: const Text('自动同步云端', style: TextStyle(fontSize: 14)),
+                subtitle: const Text(
+                  '本机有修改或云端有更新时自动对齐（此开关只保存在本机设备）',
+                  style: TextStyle(fontSize: 12, color: AppColors.textFaint),
+                ),
+              ),
+              const SizedBox(height: 6),
+              Wrap(
+                spacing: 12,
+                runSpacing: 12,
+                children: <Widget>[
+                  FilledButton.icon(
+                    onPressed: sync.syncing
+                        ? null
+                        : () async {
+                            final SyncResult r = await sync.syncNow();
+                            _toast(r.message);
+                          },
+                    icon: Icon(
+                      sync.syncing ? Icons.sync : Icons.cloud_sync_outlined,
+                      size: 18,
+                    ),
+                    label: Text(sync.syncing ? '同步中…' : '立即同步'),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: sync.syncing
+                        ? null
+                        : () => _restoreSnapshot(state, sync),
+                    icon: const Icon(Icons.history_outlined, size: 18),
+                    label: const Text('恢复上次同步前的备份'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  /// 冲突时落败的那一份会留在本机快照里，这里让用户能一键找回。
+  Future<void> _restoreSnapshot(AppState state, SyncManager sync) async {
+    final Archive? snap = await sync.snapshotArchive();
+    if (!mounted) return;
+    if (snap == null) {
+      _toast('暂无可恢复的备份（同步起冲突时才会自动留一份）');
+      return;
+    }
+    final bool? ok = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext ctx) => AlertDialog(
+        title: const Text('恢复上次同步前的备份？'),
+        content: const Text('当前内容会被这份备份覆盖，请确认。'),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('恢复'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    await state.applyRemoteArchive(snap);
+    await state.markSyncedAt(DateTime.now());
+    if (!mounted) return;
+    _toast('已恢复备份内容');
   }
 
   Widget _permissionCard(AppState state, bool unlocked) {

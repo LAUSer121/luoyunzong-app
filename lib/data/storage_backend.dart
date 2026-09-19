@@ -23,6 +23,12 @@ abstract class StorageBackend {
 
   /// 存档位置的可读描述（Web 端返回 `null`）。
   Future<String?> location() async => null;
+
+  /// 写入「同步前快照」（冲突时保留另一份，便于恢复）。
+  Future<void> writeSnapshot(String data) async {}
+
+  /// 读取同步前快照。
+  Future<String?> readSnapshot() async => null;
 }
 
 /// 创建当前平台的存储后端。

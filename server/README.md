@@ -105,3 +105,36 @@ flutter build windows --release \
 ```
 
 CI 里对应加两个 secrets（`API_BASE`、`API_TOKEN`）传给 `--dart-define` 即可。
+
+---
+
+## 六、不想买服务器？用免费 PaaS（5 分钟上线，Aiven 直连）
+
+仓库根目录已经放好两个部署描述文件，选一个即可：
+
+| 平台 | 文件 | 说明 |
+| --- | --- | --- |
+| **Render**（推荐，免费层） | `render.yaml` | Blueprint 一键部署；免费实例闲置会休眠，首次访问慢几秒 |
+| Railway | `railway.json` | 新账号有试用额度，构建更快 |
+| Fly.io / 自己的 VPS | `server/Dockerfile` | `docker compose up -d --build` |
+
+步骤（Render 为例）：
+
+1. 打开 <https://dashboard.render.com> → New → **Blueprint** → 选本仓库；
+2. 按提示填环境变量（`DB_HOST` / `DB_PASSWORD` / `API_TOKEN` 等，值见 `server/.env`）；
+3. 部署完成后拿到形如 `https://luoyunzong-api.onrender.com` 的 HTTPS 地址；
+4. 把这个地址写进 GitHub 仓库变量，之后**每次构建出来的单文件都默认连云**：
+
+```bash
+gh variable set LUOYUNZONG_API_BASE --body "https://luoyunzong-api.onrender.com"
+gh secret   set LUOYUNZONG_API_TOKEN --body "你的 API_TOKEN"
+gh workflow run build.yml --ref main     # 重新构建
+```
+
+> App 里不会显示这个地址，也不会显示任何数据库信息；设置页只显示「云端同步」状态。
+> 地址不可达时会**自动回落本地存档**，不会卡住或丢数据。
+
+### 临时测试（不部署也能用）
+
+`server/scripts/tunnel.ps1` 会在本机起服务端 + Cloudflare 快速隧道，打印一个临时 HTTPS 地址。
+免费隧道**每次重启地址都会变**，只适合临时联调；长期使用请用上面的 PaaS 或小服务器。

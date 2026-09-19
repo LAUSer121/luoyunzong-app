@@ -10,6 +10,10 @@ import 'package:luoyunzong/state/app_state.dart';
 /// 内存存储后端：测试中不触碰真实文件 / 浏览器存储。
 class MemoryBackend implements StorageBackend {
   String? _data;
+  String? _snapshot;
+
+  /// 最近一次写入的存档文本（测试断言用）。
+  String? get lastWritten => _data;
 
   @override
   String get description => '内存';
@@ -25,6 +29,12 @@ class MemoryBackend implements StorageBackend {
 
   @override
   Future<String?> location() async => null;
+
+  @override
+  Future<void> writeSnapshot(String data) async => _snapshot = data;
+
+  @override
+  Future<String?> readSnapshot() async => _snapshot;
 }
 
 void main() {

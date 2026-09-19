@@ -117,7 +117,9 @@ app.get(
       [ORG_ID],
     );
     if (!rows.length) return res.status(404).json({ error: 'not found' });
+    // 同步用元信息：客户端据此判断「谁更新」，决定是拉取还是推送
     res.setHeader('X-Revision', String(rows[0].revision));
+    res.setHeader('X-Updated-At', new Date(rows[0].updated_at).toISOString());
     res.type('application/json').send(rows[0].payload);
   }),
 );

@@ -43,5 +43,11 @@ class LocalRepository implements LuoyunRepository {
     if (!_changes.isClosed) _changes.add(null);
   }
 
+  /// 写入同步前快照（冲突时保留另一份数据，便于恢复）。
+  Future<void> writeSnapshot(String json) => _backend.writeSnapshot(json);
+
+  /// 读取同步前快照。
+  Future<String?> readSnapshot() => _backend.readSnapshot();
+
   void dispose() => _changes.close();
 }

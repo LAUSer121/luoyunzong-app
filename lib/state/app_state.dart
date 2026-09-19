@@ -11,17 +11,73 @@ import '../core/parsers.dart';
 import '../data/archive_codec.dart';
 import '../data/local_repository.dart';
 import '../data/netease_client.dart';
+import '../data/settings_store.dart';
 import '../data/wallpaper_client.dart';
 import '../domain/models.dart';
 import '../domain/repository.dart';
 import 'bgm_controller.dart';
+import 'sync_manager.dart';
 
 class AppState extends ChangeNotifier {
-  AppState({LuoyunRepository? repository})
+  AppState({LuoyunRepository? repository, this.localStore, this.settings})
     : repository = repository ?? LocalRepository(),
       archive = Archive();
 
   final LuoyunRepository repository;
+
+  /// 本地存档仓储：云同步的快照（冲突备份）固定写在本机，不随云端走。
+  final LocalRepository? localStore;
+
+  /// 设备本地设置（自动同步开关、上次同步时间等只存本机）。
+  final SettingsStore? settings;
+
+  /// 云同步引擎（由 main 装配；未配置云端时为 null）。
+  SyncManager? sync;
+
+  /// 本机最后一次「真正改动内容」的时间，用于判断云端与我这边谁更新。
+  DateTime? _lastLocalChangeAt;
+
+  DateTime? get lastLocalChangeAt => _lastLocalChangeAt;
+
+  /// 载入设备本地保存的最后改动时间（启动时从 SharedPreferences 恢复）。
+  void restoreLocalChangeAt(DateTime? at) {
+    _lastLocalChangeAt = at;
+  }
+
+  /// 标记「本地刚改过」：既用于云同步判断，也触发自动同步的延迟推送。
+  void markLocalChanged() {
+    final DateTime now = DateTime.now();
+    _lastLocalChangeAt = now;
+    final SettingsStore? store = settings;
+    if (store != null) unawaited(store.setLastLocalChangeAt(now));
+    sync?.onLocalChange();
+  }
+
+  /// 同步完成后对齐时间戳（避免把同一份数据反复推拉）。
+  Future<void> markSyncedAt(DateTime at) async {
+    _lastLocalChangeAt = at;
+    await settings?.setLastLocalChangeAt(at);
+  }
+
+  /// 把云端存档写入本地（不视为本地新改动），并刷新曲单等派生数据。
+  Future<void> applyRemoteArchive(Archive remote) async {
+    archive = remote;
+    _dirty = true;
+    notifyListeners();
+    await _persist();
+    unawaited(
+      bgm
+          .syncFromArchive(archive)
+          .catchError((Object _) => bgm.markUnavailable()),
+    );
+  }
+
+  /// 同步时留一份本机快照（冲突时保留落败的一份，可手动恢复）。
+  Future<void> writeSyncSnapshot(String json) async {
+    await localStore?.writeSnapshot(json);
+  }
+
+  Future<String?> readSyncSnapshot() async => localStore?.readSnapshot();
 
   /// BGM 播放控制器（曲单与存档同步）。
   final BgmController bgm = BgmController();
@@ -99,6 +155,8 @@ class AppState extends ChangeNotifier {
   void mutate(void Function(Archive a) body, {bool persist = true}) {
     body(archive);
     _dirty = true;
+    // 内容改动即记时间戳：云同步据此判断「本地比云端新」。
+    markLocalChanged();
     notifyListeners();
     if (!persist) return;
     _saveTimer?.cancel();

@@ -13,6 +13,7 @@ import 'storage_backend.dart';
 
 const String _kFileName = 'luoyunzong_archive.json';
 const String _kBackupName = 'luoyunzong_archive.backup.json';
+const String _kSnapshotName = 'luoyunzong_archive.snapshot.json';
 
 /// 便携模式数据目录名（与可执行文件同级）。
 const String kPortableDataDirName = 'luoyunzong_data';
@@ -88,6 +89,28 @@ class FileStorageBackend implements StorageBackend {
       await file.delete();
     }
     await tmp.rename(file.path);
+  }
+
+  File? _snapshotFile() {
+    final File? main = _cached;
+    if (main == null) return null;
+    return File('${main.parent.path}${Platform.pathSeparator}$_kSnapshotName');
+  }
+
+  @override
+  Future<void> writeSnapshot(String data) async {
+    await _resolve();
+    final File? snap = _snapshotFile();
+    if (snap == null) return;
+    await snap.writeAsString(data, flush: true);
+  }
+
+  @override
+  Future<String?> readSnapshot() async {
+    await _resolve();
+    final File? snap = _snapshotFile();
+    if (snap == null || !await snap.exists()) return null;
+    return snap.readAsString();
   }
 
   @override

@@ -7,6 +7,7 @@ import 'storage_backend.dart';
 
 const String _kKey = 'luoyunzong_all';
 const String _kBackupKey = 'luoyunzong_all_backup';
+const String _kSnapshotKey = 'luoyunzong_all_snapshot';
 
 class PrefsStorageBackend implements StorageBackend {
   @override
@@ -30,6 +31,19 @@ class PrefsStorageBackend implements StorageBackend {
       await prefs.setString(_kBackupKey, previous);
     }
     await prefs.setString(_kKey, data);
+  }
+
+  @override
+  Future<void> writeSnapshot(String data) async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_kSnapshotKey, data);
+  }
+
+  @override
+  Future<String?> readSnapshot() async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    await prefs.reload();
+    return prefs.getString(_kSnapshotKey);
   }
 
   @override

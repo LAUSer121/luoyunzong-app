@@ -52,10 +52,11 @@ class ApiClient {
     throw ApiException(res.statusCode, utf8.decode(res.bodyBytes));
   }
 
-  /// 健康检查。
-  Future<bool> ping() async {
+  /// 健康检查（限时，避免启动时被不可达地址拖住）。
+  Future<bool> ping({Duration timeout = const Duration(seconds: 5)}) async {
     try {
-      await _send(() => _client.get(_uri('/api/health'), headers: _headers));
+      await _send(() => _client.get(_uri('/api/health'), headers: _headers))
+          .timeout(timeout);
       return true;
     } catch (_) {
       return false;
@@ -80,6 +81,32 @@ class ApiClient {
     );
     if (data is Map) return Archive.fromJson(data.cast<String, Object?>());
     return null;
+  }
+
+  /// 读取存档并带回同步元信息（revision / 服务端更新时间）。
+  ///
+  /// 服务端没有存档时返回 `archive: null, revision: 0`（不算错误），
+  /// 这样首次同步可以直接把本地存档推上去。
+  Future<({Archive? archive, int revision, DateTime? updatedAt})>
+  fetchArchiveMeta() async {
+    final http.Response res = await _client
+        .get(_uri('/api/archive'), headers: _headers)
+        .timeout(const Duration(seconds: 30));
+    if (res.statusCode == 404) {
+      return (archive: null, revision: 0, updatedAt: null);
+    }
+    if (res.statusCode < 200 || res.statusCode >= 300) {
+      throw ApiException(res.statusCode, utf8.decode(res.bodyBytes));
+    }
+    final int revision = int.tryParse(res.headers['x-revision'] ?? '') ?? 0;
+    final DateTime? updatedAt = DateTime.tryParse(
+      res.headers['x-updated-at'] ?? '',
+    );
+    final Object? decoded = jsonDecode(utf8.decode(res.bodyBytes));
+    final Archive? archive = decoded is Map
+        ? Archive.fromJson(decoded.cast<String, Object?>())
+        : null;
+    return (archive: archive, revision: revision, updatedAt: updatedAt);
   }
 
   Future<void> putArchive(Archive archive) async {

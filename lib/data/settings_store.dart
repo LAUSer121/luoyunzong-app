@@ -13,6 +13,9 @@ class SettingsStore {
   static const String _kUseRemote = 'luoyunzong_use_remote';
   static const String _kMuted = 'luoyunzong_bgm_muted';
   static const String _kNeteaseBase = 'luoyunzong_netease_base';
+  static const String _kAutoSync = 'luoyunzong_auto_sync';
+  static const String _kLastSyncAt = 'luoyunzong_last_sync_at';
+  static const String _kLastLocalChange = 'luoyunzong_last_local_change';
 
   /// 构建期注入的默认服务端地址与令牌（未注入时为空串）。
   static const String bakedApiBase = String.fromEnvironment(
@@ -50,6 +53,30 @@ class SettingsStore {
 
   Future<void> setUseRemote(bool value) async =>
       (await _prefs).setBool(_kUseRemote, value);
+
+  // ---- 云同步（保存在本机设备，不随存档同步到其他设备）----
+
+  /// 是否自动同步云端。
+  Future<bool> autoSync() async => (await _prefs).getBool(_kAutoSync) ?? false;
+
+  Future<void> setAutoSync(bool value) async =>
+      (await _prefs).setBool(_kAutoSync, value);
+
+  Future<DateTime?> lastSyncAt() async {
+    final int? ms = (await _prefs).getInt(_kLastSyncAt);
+    return ms == null ? null : DateTime.fromMillisecondsSinceEpoch(ms);
+  }
+
+  Future<void> setLastSyncAt(DateTime at) async =>
+      (await _prefs).setInt(_kLastSyncAt, at.millisecondsSinceEpoch);
+
+  Future<DateTime?> lastLocalChangeAt() async {
+    final int? ms = (await _prefs).getInt(_kLastLocalChange);
+    return ms == null ? null : DateTime.fromMillisecondsSinceEpoch(ms);
+  }
+
+  Future<void> setLastLocalChangeAt(DateTime at) async =>
+      (await _prefs).setInt(_kLastLocalChange, at.millisecondsSinceEpoch);
 
   Future<bool> bgmMuted() async => (await _prefs).getBool(_kMuted) ?? false;
 
