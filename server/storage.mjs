@@ -19,6 +19,77 @@ import { pool, ORG_ID } from './db.mjs';
 
 const UPLOAD_DIR = fileURLToPath(new URL('uploads/', import.meta.url));
 const SETTINGS_KEY = 'storage';
+const LIMITS_KEY = 'limits';
+
+/** 上传上限的出厂默认值（与旧版一致：视频 20MB / 25 秒）。 */
+export const defaultLimits = () => ({
+  videoMaxMB: Number(process.env.VIDEO_MAX_MB || 20),
+  videoMaxSeconds: Number(process.env.VIDEO_MAX_SECONDS || 25),
+  imageMaxMB: Number(process.env.IMAGE_MAX_MB || 20),
+});
+
+/** 当前生效的上传上限（管理员在 App 里改，存数据库）。 */
+let limits = defaultLimits();
+let limitsFromDatabase = false;
+
+export const currentLimits = () => ({
+  ...limits,
+  fromDatabase: limitsFromDatabase,
+  // 服务端进程硬上限（express.raw 的 limit），超过它连解析都进不来
+  hardMaxMB: Number(process.env.MAX_UPLOAD_MB || 512),
+});
+
+export async function reloadLimits() {
+  try {
+    const [rows] = await pool.query(
+      'SELECT svalue FROM app_settings WHERE org_id = ? AND skey = ? LIMIT 1',
+      [ORG_ID, LIMITS_KEY],
+    );
+    if (rows.length && rows[0].svalue) {
+      limits = { ...defaultLimits(), ...JSON.parse(String(rows[0].svalue)) };
+      limitsFromDatabase = true;
+      return currentLimits();
+    }
+  } catch (e) {
+    console.error('[limits] 读取失败，先用默认值：', e.message);
+  }
+  limits = defaultLimits();
+  limitsFromDatabase = false;
+  return currentLimits();
+}
+
+export async function saveLimits(patch = {}) {
+  const num = (v, min, max, fallback) => {
+    if (v === undefined || v === null || String(v).trim() === '') return fallback;
+    const n = Number(v);
+    if (!Number.isFinite(n) || n < min || n > max) {
+      throw new Error(`数值不合法：${v}（应在 ${min} ~ ${max} 之间）`);
+    }
+    return Math.round(n);
+  };
+  const merged = {
+    videoMaxMB: num(patch.videoMaxMB, 1, 1024, limits.videoMaxMB),
+    videoMaxSeconds: num(patch.videoMaxSeconds, 0, 3600, limits.videoMaxSeconds),
+    imageMaxMB: num(patch.imageMaxMB, 1, 200, limits.imageMaxMB),
+  };
+  await pool.query(
+    `INSERT INTO app_settings (org_id, skey, svalue) VALUES (?, ?, ?)
+     ON DUPLICATE KEY UPDATE svalue = VALUES(svalue)`,
+    [ORG_ID, LIMITS_KEY, JSON.stringify(merged)],
+  );
+  await reloadLimits();
+  return currentLimits();
+}
+
+/** 按 mime 判断这次上传的上限（字节）。 */
+export const maxBytesForMime = (mime = '') => {
+  const mb = mime.startsWith('video/')
+    ? limits.videoMaxMB
+    : mime.startsWith('image/')
+    ? limits.imageMaxMB
+    : Math.max(limits.videoMaxMB, limits.imageMaxMB);
+  return mb * 1024 * 1024;
+};
 
 /** .env 里的出厂默认值。 */
 const envDefaults = () => ({
@@ -82,6 +153,8 @@ export const publicStorageConfig = () => {
     upyunOperator: current.upyunOperator,
     upyunPasswordSet: Boolean(current.upyunPassword),
     drivers: DRIVERS,
+    // 上传上限一起回，界面一个卡片就能全配
+    limits: currentLimits(),
   };
 };
 
@@ -136,6 +209,10 @@ export async function saveStorageConfig(patch = {}) {
     [ORG_ID, SETTINGS_KEY, JSON.stringify(merged)],
   );
   await reloadStorageConfig();
+  // 同一个卡片里也能改上传上限：一起收
+  if (patch.limits && typeof patch.limits === 'object') {
+    await saveLimits(patch.limits);
+  }
   return publicStorageConfig();
 }
 

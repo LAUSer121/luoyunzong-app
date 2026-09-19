@@ -165,6 +165,31 @@ class ApiClient {
     }
   }
 
+  /// 读取服务端当前的上传上限（健康检查里就带着，无需额外鉴权）。
+  /// 拿不到（离线/老服务端）返回 null，客户端就用内置默认值。
+  Future<({int videoMaxMB, int videoMaxSeconds, int imageMaxMB})?>
+  fetchUploadLimits() async {
+    try {
+      final Object? data = await _send(
+        () => _client.get(_uri('/api/health'), headers: _headers),
+      );
+      if (data is! Map) return null;
+      final Object? limits = data['limits'];
+      if (limits is! Map) return null;
+      int intOf(Object? v, int fallback) =>
+          v is num && v > 0 ? v.toInt() : fallback;
+      return (
+        videoMaxMB: intOf(limits['videoMaxMB'], 20),
+        videoMaxSeconds: limits['videoMaxSeconds'] is num
+            ? (limits['videoMaxSeconds'] as num).toInt()
+            : 25,
+        imageMaxMB: intOf(limits['imageMaxMB'], 20),
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// 把网络异常翻译成「人话」，别把 SocketException 甩给用户。
   String friendlyError(Object e) {
     final String raw = '$e';

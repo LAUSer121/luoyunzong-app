@@ -106,6 +106,8 @@ Future<SyncManager> attachSync(
   state.sync = sync;
   // 设置页里的管理员操作（对象存储配置等）复用同一个客户端。
   state.cloudClient = cloud?.client;
+  // 上传上限由服务端下发（管理员可调），拿不到就用出厂默认。
+  await state.refreshUploadLimits();
   state.restoreLocalChangeAt(await settings.lastLocalChangeAt());
   sync.restore(
     autoSync: await settings.autoSync(),

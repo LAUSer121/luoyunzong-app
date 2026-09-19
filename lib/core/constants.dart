@@ -128,9 +128,15 @@ const int kAvatarMaxWidth = 256;
 const int kBackgroundMaxWidth = 1920;
 const int kImageQuality = 85;
 
-/// 视频上限：20MB / 25 秒。
-const int kVideoMaxBytes = 20 * 1024 * 1024;
-const int kVideoMaxSeconds = 25;
+/// 上传上限的出厂默认值（服务端没配过、或离线时用这套）。
+/// 管理员可以在「设置 → 云端资源存储 → 上传上限」里改，改完所有设备都生效。
+const int kDefaultVideoMaxMB = 20;
+const int kDefaultVideoMaxSeconds = 25;
+const int kDefaultImageMaxMB = 20;
+
+/// 兼容旧引用。
+const int kVideoMaxBytes = kDefaultVideoMaxMB * 1024 * 1024;
+const int kVideoMaxSeconds = kDefaultVideoMaxSeconds;
 
 /// 存档默认文件名。
 const String kArchiveFileName = '落云宗存档.json';

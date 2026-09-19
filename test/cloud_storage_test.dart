@@ -36,7 +36,20 @@ class FakeApiClient extends ApiClient {
     'upyunOperator': '',
     'upyunPasswordSet': false,
     'drivers': <String>['local', 's3', 'upyun'],
+    'limits': <String, Object?>{
+      'videoMaxMB': saved ? 80 : 20,
+      'videoMaxSeconds': saved ? 300 : 25,
+      'imageMaxMB': 20,
+    },
   };
+
+  @override
+  Future<({int videoMaxMB, int videoMaxSeconds, int imageMaxMB})?>
+  fetchUploadLimits() async => (
+    videoMaxMB: saved ? 80 : 20,
+    videoMaxSeconds: saved ? 300 : 25,
+    imageMaxMB: 20,
+  );
 
   @override
   Future<Map<String, Object?>> saveStorageConfig(
@@ -209,5 +222,43 @@ void main() {
     expect(client.lastSaved!['bucket'], 'my-media');
     expect(client.testCalls, 1);
     expect(find.textContaining('403'), findsOneWidget);
+  });
+
+  testWidgets('上传上限：管理员可改视频上限/时长，并随保存下发', (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(1100, 2600);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    final FakeApiClient client = FakeApiClient();
+    final AppState state = _state(unlocked: true, client: client);
+    await _pump(tester, state);
+
+    await tester.ensureVisible(find.text('上传上限'));
+    await tester.pumpAndSettle();
+
+    // 默认值来自服务端（20MB / 25 秒）
+    expect(
+      tester
+          .widget<TextField>(find.widgetWithText(TextField, '视频单文件上限（MB）'))
+          .controller
+          ?.text,
+      '20',
+    );
+
+    await tester.enterText(
+      find.widgetWithText(TextField, '视频单文件上限（MB）'),
+      '200',
+    );
+    await tester.enterText(find.widgetWithText(TextField, '视频时长上限（秒）'), '0');
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('保存到服务器'));
+    await tester.pumpAndSettle();
+
+    final Map<String, Object?> limits =
+        client.lastSaved!['limits']! as Map<String, Object?>;
+    expect(limits['videoMaxMB'], 200);
+    expect(limits['videoMaxSeconds'], 0, reason: '填 0 表示不限时长');
+    expect(find.textContaining('上传上限'), findsWidgets);
   });
 }

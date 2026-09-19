@@ -7,7 +7,6 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../core/constants.dart';
 import '../core/file_utils.dart';
 import '../core/image_utils.dart';
 import '../core/theme.dart';
@@ -63,15 +62,24 @@ class _PortraitDialogState extends State<_PortraitDialog> {
       dialogTitle: '选择动态视频',
     );
     if (picked == null) return;
-    if (picked.bytes.length > kVideoMaxBytes) {
-      _toast('视频超过 20MB，请压缩后再上传（建议 480p、25 秒内）');
+    // 上限由服务端下发（管理员可调），离线时用出厂默认
+    final int maxBytes = state.videoMaxBytes;
+    if (picked.bytes.length > maxBytes) {
+      _toast(
+        '视频 ${_mb(picked.bytes.length)}MB，超过当前上限 ${state.videoMaxMB}MB。'
+        '管理员可在「设置 → 云端资源存储 → 上传上限」里调大',
+      );
       return;
     }
     setState(() => _busy = true);
     final double? seconds = await probeVideoDurationSeconds(picked.bytes);
     setState(() => _busy = false);
-    if (seconds != null && seconds > kVideoMaxSeconds) {
-      _toast('视频时长 ${seconds.toStringAsFixed(1)} 秒，超过 $kVideoMaxSeconds 秒上限');
+    final int maxSeconds = state.videoMaxSeconds;
+    if (seconds != null && maxSeconds > 0 && seconds > maxSeconds) {
+      _toast(
+        '视频时长 ${seconds.toStringAsFixed(1)} 秒，超过 $maxSeconds 秒上限；'
+        '管理员可在「云端资源存储 → 上传上限」里调大（填 0 表示不限）',
+      );
       return;
     }
     state.setVideo(
@@ -81,6 +89,8 @@ class _PortraitDialogState extends State<_PortraitDialog> {
     setState(() => _showVideo = true);
     _toast('动态视频已更新，随存档一起保存');
   }
+
+  static String _mb(int bytes) => (bytes / 1024 / 1024).toStringAsFixed(1);
 
   Future<void> _exportVideo(String dataUrl) async {
     final Uint8List? bytes = dataUrlToBytes(dataUrl);

@@ -53,6 +53,9 @@ class _SettingsPageState extends State<SettingsPage> {
   final TextEditingController _storageSecretKey = TextEditingController();
   final TextEditingController _storagePublicBase = TextEditingController();
   final TextEditingController _storageOperator = TextEditingController();
+  final TextEditingController _videoMaxMB = TextEditingController();
+  final TextEditingController _videoMaxSeconds = TextEditingController();
+  final TextEditingController _imageMaxMB = TextEditingController();
   String _storageDriver = 'local';
   bool _storageSecretSet = false;
   bool _storageLoaded = false;
@@ -81,6 +84,7 @@ class _SettingsPageState extends State<SettingsPage> {
         _storageOperator.text = '${cfg['upyunOperator'] ?? ''}';
         _storageSecretSet =
             cfg['secretKeySet'] == true || cfg['upyunPasswordSet'] == true;
+        _applyLimits(cfg['limits']);
         _storageLoaded = true;
       });
     } catch (e) {
@@ -94,6 +98,24 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   /// 组装当前表单内容；密钥留空时不下发（服务端保持原值）。
+  /// 上传上限三个框 → 服务端字段。
+  Map<String, Object?> _limitsPayload() => <String, Object?>{
+    'videoMaxMB': int.tryParse(_videoMaxMB.text.trim()) ?? 20,
+    'videoMaxSeconds': int.tryParse(_videoMaxSeconds.text.trim()) ?? 25,
+    'imageMaxMB': int.tryParse(_imageMaxMB.text.trim()) ?? 20,
+  };
+
+  /// 用服务端返回的 limits 刷新三个输入框（所有设备即时生效）。
+  void _applyLimits(Object? raw) {
+    if (raw is! Map) return;
+    final int videoMB = (raw['videoMaxMB'] as num?)?.toInt() ?? 20;
+    final int seconds = (raw['videoMaxSeconds'] as num?)?.toInt() ?? 25;
+    final int imageMB = (raw['imageMaxMB'] as num?)?.toInt() ?? 20;
+    _videoMaxMB.text = videoMB.toString();
+    _videoMaxSeconds.text = seconds.toString();
+    _imageMaxMB.text = imageMB.toString();
+  }
+
   Map<String, Object?> _storagePayload() {
     final String secret = _storageSecretKey.text.trim();
     if (_storageDriver == 's3') {
@@ -105,6 +127,7 @@ class _SettingsPageState extends State<SettingsPage> {
         'accessKey': _storageAccessKey.text.trim(),
         'publicBase': _storagePublicBase.text.trim(),
         if (secret.isNotEmpty) 'secretKey': secret,
+        'limits': _limitsPayload(),
       };
     }
     if (_storageDriver == 'upyun') {
@@ -114,9 +137,10 @@ class _SettingsPageState extends State<SettingsPage> {
         'upyunOperator': _storageOperator.text.trim(),
         'publicBase': _storagePublicBase.text.trim(),
         if (secret.isNotEmpty) 'upyunPassword': secret,
+        'limits': _limitsPayload(),
       };
     }
-    return <String, Object?>{'driver': 'local'};
+    return <String, Object?>{'driver': 'local', 'limits': _limitsPayload()};
   }
 
   Future<void> _saveStorageConfig(AppState state, {bool silent = false}) async {
@@ -135,11 +159,16 @@ class _SettingsPageState extends State<SettingsPage> {
         _storageBusy = false;
         _storageStatusOk = true;
         _secretKeysetFrom(saved);
+        _applyLimits(saved['limits']);
         _storageStatus =
             '已保存到服务器：${saved['driver']}'
             '${(saved['bucket'] ?? '') == '' ? '' : ' · ${saved['bucket']}'}'
-            '（之后新上传的资源就进这里；已存在的资源位置不变）';
+            '　|　上传上限：视频 ${state.videoMaxMB}MB / '
+            '${state.videoMaxSeconds == 0 ? '不限时长' : '${state.videoMaxSeconds} 秒'}'
+            '　（新上传的资源就进这里；已存在的资源位置不变）';
       });
+      // 让其它页面（选视频时的校验）立刻用上新上限
+      state.refreshUploadLimits();
       if (!silent) return;
     } catch (e) {
       if (!mounted) return;
@@ -216,6 +245,9 @@ class _SettingsPageState extends State<SettingsPage> {
     _storageSecretKey.dispose();
     _storagePublicBase.dispose();
     _storageOperator.dispose();
+    _videoMaxMB.dispose();
+    _videoMaxSeconds.dispose();
+    _imageMaxMB.dispose();
     super.dispose();
   }
 
@@ -452,6 +484,53 @@ class _SettingsPageState extends State<SettingsPage> {
                 ),
               ),
             ],
+            const SizedBox(height: 12),
+            // ---- 上传上限（视频 / 图片；管理员可调，所有设备都按这个走）----
+            const Text(
+              '上传上限',
+              style: TextStyle(
+                color: AppColors.gold,
+                fontSize: 13,
+                letterSpacing: 1.0,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Row(
+              children: <Widget>[
+                Expanded(
+                  child: TextField(
+                    controller: _videoMaxMB,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      labelText: '视频单文件上限（MB）',
+                      hintText: '例如 60',
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: TextField(
+                    controller: _videoMaxSeconds,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      labelText: '视频时长上限（秒）',
+                      hintText: '0 = 不限',
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: TextField(
+                    controller: _imageMaxMB,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      labelText: '图片上限（MB）',
+                      hintText: '例如 30',
+                    ),
+                  ),
+                ),
+              ],
+            ),
             const SizedBox(height: 12),
             Wrap(
               spacing: 12,

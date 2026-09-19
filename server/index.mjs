@@ -12,6 +12,9 @@ import {
   saveStorageConfig,
   reloadStorageConfig,
   testStorage,
+  maxBytesForMime,
+  reloadLimits,
+  currentLimits,
 } from './storage.mjs';
 
 const app = express();
@@ -72,6 +75,7 @@ app.get(
       ok: true,
       db: { ok: true, version: rows[0].version, now: rows[0].now },
       storage: { driver: storageInfo().driver },
+      limits: currentLimits(),
       org: ORG_ID,
     });
   }),
@@ -203,18 +207,32 @@ app.delete(
 //   GET  /api/assets/batch?ids=a,b,c             → { id: base64 }
 //   GET  /assets/<id>?mime=                      → 本地驱动直接回源
 // ---------------------------------------------------------------------------
+// 音频/视频可能很大：express.raw 这里给一个进程级硬上限（MAX_UPLOAD_MB，默认 512MB），
+// 真正的上限（管理员在 App 里配的）在下面按 mime 判断。
 app.post(
   '/api/assets',
   auth,
-  express.raw({ type: '*/*', limit: '32mb' }),
+  express.raw({
+    type: '*/*',
+    limit: `${Number(process.env.MAX_UPLOAD_MB || 512)}mb`,
+  }),
   asyncRoute(async (req, res) => {
     const id = String(req.query.id || '').trim();
     const mime = String(req.query.mime || req.headers['content-type'] || 'application/octet-stream');
     const bytes = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
     if (!id) return res.status(400).json({ error: 'id is required' });
     if (!bytes.length) return res.status(400).json({ error: 'empty body' });
-    if (bytes.length > 16 * 1024 * 1024) {
-      return res.status(413).json({ error: 'too large for database storage, use object storage' });
+
+    // 管理员在 App 里配的上限（视频/图片分别一份）
+    const limit = maxBytesForMime(mime);
+    if (bytes.length > limit) {
+      const mb = (limit / 1024 / 1024).toFixed(0);
+      return res.status(413).json({
+        error:
+          `文件 ${(bytes.length / 1024 / 1024).toFixed(1)}MB 超过当前上限 ${mb}MB；` +
+          `管理员可在「设置 → 云端资源存储 → 上传上限」里调大`,
+        limitMB: Number(mb),
+      });
     }
 
     const [existing] = await pool.query(
@@ -224,11 +242,13 @@ app.post(
     if (existing.length) return res.json({ id, deduplicated: true });
 
     const { url, driver } = await putAsset({ id, mime, bytes });
+    // 字节已经落到对象存储/磁盘了，数据库只留索引（Aiven 免费版只有 1GB，
+    // 视频绝不能再往库里塞一份）。
     await pool.query(
       `INSERT INTO assets (org_id, id, mime, byte_size, bytes, url, driver)
-       VALUES (?, ?, ?, ?, ?, ?, ?)
-       ON DUPLICATE KEY UPDATE url = VALUES(url), driver = VALUES(driver)`,
-      [ORG_ID, id, mime, bytes.length, driver === 'local' ? null : bytes, url || null, driver],
+       VALUES (?, ?, ?, ?, NULL, ?, ?)
+       ON DUPLICATE KEY UPDATE url = VALUES(url), driver = VALUES(driver), byte_size = VALUES(byte_size)`,
+      [ORG_ID, id, mime, bytes.length, url || null, driver],
     );
     res.json({ id, url, driver, size: bytes.length });
   }),
@@ -295,4 +315,5 @@ app.listen(PORT, () => {
   );
   // 启动时把管理员在 App 里保存的对象存储配置读进来
   reloadStorageConfig().catch((e) => console.error('[api] 读取存储配置失败:', e.message));
+  reloadLimits().catch((e) => console.error('[api] 读取上传上限失败:', e.message));
 });

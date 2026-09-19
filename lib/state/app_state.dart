@@ -38,6 +38,28 @@ class AppState extends ChangeNotifier {
   /// 云端 API 客户端（设置页里「资源存储」等管理员操作要用；纯本地时为 null）。
   ApiClient? cloudClient;
 
+  /// 视频 / 图片上传上限（管理员在「云端资源存储」卡片里可调；
+  /// 拿不到服务端值时用出厂默认）。
+  int videoMaxMB = kDefaultVideoMaxMB;
+  int videoMaxSeconds = kDefaultVideoMaxSeconds;
+  int imageMaxMB = kDefaultImageMaxMB;
+
+  int get videoMaxBytes => videoMaxMB * 1024 * 1024;
+  int get imageMaxBytes => imageMaxMB * 1024 * 1024;
+
+  /// 从服务端刷新上传上限（启动时、以及管理员保存后调用）。
+  Future<void> refreshUploadLimits() async {
+    final ApiClient? client = cloudClient;
+    if (client == null) return;
+    final ({int videoMaxMB, int videoMaxSeconds, int imageMaxMB})? limits =
+        await client.fetchUploadLimits();
+    if (limits == null) return;
+    videoMaxMB = limits.videoMaxMB;
+    videoMaxSeconds = limits.videoMaxSeconds;
+    imageMaxMB = limits.imageMaxMB;
+    notifyListeners();
+  }
+
   /// 本机最后一次「真正改动内容」的时间，用于判断云端与我这边谁更新。
   DateTime? _lastLocalChangeAt;
 
