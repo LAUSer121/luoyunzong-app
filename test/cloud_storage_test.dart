@@ -179,7 +179,7 @@ void main() {
     expect(secret.controller?.text, isEmpty);
   });
 
-  testWidgets('测试连接：把服务端返回的失败原因原样显示出来', (WidgetTester tester) async {
+  testWidgets('测试连接：会先保存当前填写内容，再显示服务端返回的原因', (WidgetTester tester) async {
     tester.view.physicalSize = const Size(1100, 2400);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
@@ -187,11 +187,26 @@ void main() {
     final FakeApiClient client = FakeApiClient(testOk: false);
     await _pump(tester, _state(unlocked: true, client: client));
 
+    // 切到缤纷云并填上桶名，验证「测试连接」先把表单存下去
+    await tester.ensureVisible(find.text('存储位置'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('服务端本地磁盘'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('缤纷云 / S3 兼容对象存储').last);
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.widgetWithText(TextField, '桶名 Bucket'),
+      'my-media',
+    );
+    await tester.pumpAndSettle();
+
     await tester.ensureVisible(find.text('测试连接'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('测试连接'));
     await tester.pumpAndSettle();
 
+    expect(client.lastSaved, isNotNull, reason: '测试前必须先保存，否则测的还是老配置');
+    expect(client.lastSaved!['bucket'], 'my-media');
     expect(client.testCalls, 1);
     expect(find.textContaining('403'), findsOneWidget);
   });

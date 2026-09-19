@@ -88,7 +88,7 @@ class _SettingsPageState extends State<SettingsPage> {
       setState(() {
         _storageLoaded = true;
         _storageStatusOk = false;
-        _storageStatus = '读取服务端配置失败：$e';
+        _storageStatus = client.friendlyError(e);
       });
     }
   }
@@ -119,7 +119,7 @@ class _SettingsPageState extends State<SettingsPage> {
     return <String, Object?>{'driver': 'local'};
   }
 
-  Future<void> _saveStorageConfig(AppState state) async {
+  Future<void> _saveStorageConfig(AppState state, {bool silent = false}) async {
     final ApiClient? client = state.cloudClient;
     if (client == null) return;
     setState(() {
@@ -134,27 +134,41 @@ class _SettingsPageState extends State<SettingsPage> {
       setState(() {
         _storageBusy = false;
         _storageStatusOk = true;
-        _storageSecretSet =
-            saved['secretKeySet'] == true || saved['upyunPasswordSet'] == true;
-        _storageSecretKey.clear();
+        _secretKeysetFrom(saved);
         _storageStatus =
             '已保存到服务器：${saved['driver']}'
             '${(saved['bucket'] ?? '') == '' ? '' : ' · ${saved['bucket']}'}'
             '（之后新上传的资源就进这里；已存在的资源位置不变）';
       });
+      if (!silent) return;
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _storageBusy = false;
         _storageStatusOk = false;
-        _storageStatus = '保存失败：$e';
+        _storageStatus = client.friendlyError(e);
       });
+      rethrow;
     }
   }
 
+  /// 统一更新「密钥是否已保存」的状态位。
+  void _secretKeysetFrom(Map<String, Object?> saved) {
+    _storageSecretSet =
+        saved['secretKeySet'] == true || saved['upyunPasswordSet'] == true;
+    _storageSecretKey.clear();
+  }
+
+  /// 测试连接：**先保存再测**，否则测的还是上一次存进去的老配置。
   Future<void> _testStorageConfig(AppState state) async {
     final ApiClient? client = state.cloudClient;
     if (client == null) return;
+    try {
+      await _saveStorageConfig(state, silent: true);
+    } catch (_) {
+      return; // 保存失败时已经把原因显示出来了，不必再测
+    }
+    if (!mounted) return;
     setState(() {
       _storageBusy = true;
       _storageStatus = null;

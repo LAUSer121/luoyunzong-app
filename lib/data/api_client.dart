@@ -146,6 +146,8 @@ class ApiClient {
   }
 
   /// 让服务端实测一次「上传 → 回读」，返回 { ok, message }。
+  ///
+  /// 注意：测的是**服务端已保存的配置**，所以界面上要「先保存再测试」。
   Future<({bool ok, String message})> testStorage() async {
     try {
       final Object? data = await _send(
@@ -159,8 +161,27 @@ class ApiClient {
         message: '${map['message'] ?? (map['ok'] == true ? '测试通过' : '测试失败')}',
       );
     } catch (e) {
-      return (ok: false, message: '请求失败：$e');
+      return (ok: false, message: friendlyError(e));
     }
+  }
+
+  /// 把网络异常翻译成「人话」，别把 SocketException 甩给用户。
+  String friendlyError(Object e) {
+    final String raw = '$e';
+    final bool unreachable =
+        raw.contains('SocketException') ||
+        raw.contains('ClientException') ||
+        raw.contains('Connection refused') ||
+        raw.contains('拒绝') ||
+        raw.contains('Failed host lookup') ||
+        raw.contains('TimeoutException') ||
+        raw.contains('timed out');
+    if (unreachable) {
+      return '连不上服务端（$baseUrl）。\n'
+          '先在电脑上把服务端跑起来：powershell -File server\\start-server.ps1\n'
+          '（跑起来后再回到这里点「测试连接」）';
+    }
+    return '请求失败：$e';
   }
 
   Future<void> deleteArchive() async {
