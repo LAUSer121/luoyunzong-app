@@ -4,6 +4,8 @@
 /// 尤其是「云端连不上时整机仍能纯本地用，同时保留同步通道等恢复」这条底线。
 library;
 
+import 'dart:async';
+
 import '../data/api_client.dart';
 import '../data/api_repository.dart';
 import '../data/local_repository.dart';
@@ -107,7 +109,10 @@ Future<SyncManager> attachSync(
   // 设置页里的管理员操作（对象存储配置等）复用同一个客户端。
   state.cloudClient = cloud?.client;
   // 上传上限由服务端下发（管理员可调），拿不到就用出厂默认。
-  await state.refreshUploadLimits();
+  //
+  // 注意：**绝不能 await**（也不能没有超时）——云端挂了的时候，
+  // 这里会把首帧一起卡住，表现就是「应用打不开」。放后台刷新即可。
+  unawaited(state.refreshUploadLimits());
   state.restoreLocalChangeAt(await settings.lastLocalChangeAt());
   sync.restore(
     autoSync: await settings.autoSync(),

@@ -126,7 +126,9 @@ class ApiClient {
   /// 读取服务端当前的资源存储配置（密钥只回「有没有设置」，不回明文）。
   Future<Map<String, Object?>> fetchStorageConfig() async {
     final Object? data = await _send(
-      () => _client.get(_uri('/api/storage'), headers: _headers),
+      () => _client
+          .get(_uri('/api/storage'), headers: _headers)
+          .timeout(const Duration(seconds: 10)),
     );
     return data is Map ? data.cast<String, Object?>() : <String, Object?>{};
   }
@@ -136,11 +138,13 @@ class ApiClient {
     Map<String, Object?> config,
   ) async {
     final Object? data = await _send(
-      () => _client.put(
-        _uri('/api/storage'),
-        headers: _headers,
-        body: jsonEncode(config),
-      ),
+      () => _client
+          .put(
+            _uri('/api/storage'),
+            headers: _headers,
+            body: jsonEncode(config),
+          )
+          .timeout(const Duration(seconds: 15)),
     );
     return data is Map ? data.cast<String, Object?>() : <String, Object?>{};
   }
@@ -151,7 +155,9 @@ class ApiClient {
   Future<({bool ok, String message})> testStorage() async {
     try {
       final Object? data = await _send(
-        () => _client.post(_uri('/api/storage/test'), headers: _headers),
+        () => _client
+            .post(_uri('/api/storage/test'), headers: _headers)
+            .timeout(const Duration(seconds: 60)),
       );
       final Map<String, Object?> map = data is Map
           ? data.cast<String, Object?>()
@@ -171,7 +177,9 @@ class ApiClient {
   fetchUploadLimits() async {
     try {
       final Object? data = await _send(
-        () => _client.get(_uri('/api/health'), headers: _headers),
+        () => _client
+            .get(_uri('/api/health'), headers: _headers)
+            .timeout(const Duration(seconds: 4)),
       );
       if (data is! Map) return null;
       final Object? limits = data['limits'];
