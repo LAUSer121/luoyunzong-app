@@ -42,3 +42,11 @@ linux/flutter/ephemeral/
 *.log
 release/
 dist/
+
+# 服务端：密钥与依赖
+server/.env
+server/.env.*
+!server/.env.example
+server/node_modules/
+server/uploads/
+server/ca.pem

@@ -37,6 +37,7 @@ class _SettingsPageState extends State<SettingsPage> {
   String? _apiStatus;
   bool _apiBusy = false;
   bool _bgBusy = false;
+  bool _useRemote = false;
   bool _loadedSettings = false;
 
   @override
@@ -49,11 +50,13 @@ class _SettingsPageState extends State<SettingsPage> {
     final String url = await _store.apiBaseUrl();
     final String token = await _store.apiToken();
     final String netease = await _store.neteaseBase();
+    final bool useRemote = await _store.useRemote();
     if (!mounted) return;
     setState(() {
       _apiUrl.text = url;
       _apiToken.text = token;
       _neteaseController.text = netease;
+      _useRemote = useRemote;
       _loadedSettings = true;
     });
   }
@@ -511,10 +514,29 @@ class _SettingsPageState extends State<SettingsPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          const SectionTitle(
-            '数据源（后期接入 MySQL）',
-            subtitle: '当前为本地模式；填写服务端地址后即可切换到 HTTP + MySQL 后端',
+          SectionTitle(
+            '数据源（MySQL 云同步）',
+            subtitle:
+                '当前：${state.storageLabel}'
+                '${SettingsStore.bakedApiBase.isEmpty ? '' : ' · 构建时已内置服务端地址'}',
           ),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            value: _useRemote,
+            onChanged: _loadedSettings
+                ? (bool v) async {
+                    setState(() => _useRemote = v);
+                    await _store.setUseRemote(v);
+                    _toast(v ? '已开启云端同步（重启后生效）' : '已切回本地模式（重启后生效）');
+                  }
+                : null,
+            title: const Text('使用云端 MySQL 同步', style: TextStyle(fontSize: 14)),
+            subtitle: const Text(
+              '存档与资源（头像/立绘/背景/视频）保存到服务端；断网自动回落本地存档',
+              style: TextStyle(fontSize: 12, color: AppColors.textFaint),
+            ),
+          ),
+          const SizedBox(height: 6),
           Row(
             children: <Widget>[
               Expanded(
@@ -552,6 +574,7 @@ class _SettingsPageState extends State<SettingsPage> {
                         setState(() => _apiBusy = true);
                         await _store.setApiBaseUrl(_apiUrl.text);
                         await _store.setApiToken(_apiToken.text);
+                        await _store.setUseRemote(_useRemote);
                         final ApiClient client = ApiClient(
                           baseUrl: _apiUrl.text.trim(),
                           token: _apiToken.text.trim(),

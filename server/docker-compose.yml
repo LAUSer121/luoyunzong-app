@@ -1,0 +1,11 @@
+services:
+  api:
+    build: .
+    container_name: luoyunzong-api
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "8080:8080"
+    volumes:
+      # local 驱动时的资源目录（切到又拍云/S3 后可以不挂）
+      - ./uploads:/app/uploads

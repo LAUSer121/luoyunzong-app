@@ -1,0 +1,23 @@
+{
+  "name": "luoyunzong-api",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "落云宗 · 宗门管理 云同步服务端（Aiven MySQL + 又拍云对象存储）",
+  "main": "index.mjs",
+  "scripts": {
+    "start": "node index.mjs",
+    "dev": "node --watch index.mjs",
+    "schema": "node scripts/apply-schema.mjs",
+    "check": "node scripts/check.mjs",
+    "storage:check": "node scripts/check-storage.mjs"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "express": "^4.21.2",
+    "mysql2": "^3.11.5"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
