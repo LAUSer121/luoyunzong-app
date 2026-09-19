@@ -507,9 +507,9 @@ class _RosterPageState extends State<RosterPage> {
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: ConstrainedBox(
-              constraints: const BoxConstraints(minWidth: 980),
+              constraints: const BoxConstraints(minWidth: 1210),
               child: SizedBox(
-                width: 980,
+                width: 1210,
                 child: Table(
                   columnWidths: const <int, TableColumnWidth>{
                     0: FixedColumnWidth(56),
@@ -518,7 +518,8 @@ class _RosterPageState extends State<RosterPage> {
                     3: FixedColumnWidth(280),
                     4: FixedColumnWidth(190),
                     5: FixedColumnWidth(90),
-                    6: FixedColumnWidth(150),
+                    6: FixedColumnWidth(200),
+                    7: FixedColumnWidth(150),
                   },
                   defaultVerticalAlignment: TableCellVerticalAlignment.middle,
                   children: <TableRow>[
@@ -530,6 +531,7 @@ class _RosterPageState extends State<RosterPage> {
                         _Th('宗门职务'),
                         _Th('修为境界'),
                         _Th('贡献点'),
+                        _Th('备注'),
                         _Th('操作'),
                       ],
                     ),
@@ -586,6 +588,21 @@ class _RosterPageState extends State<RosterPage> {
           child: Text(
             '${m.contribution}',
             style: const TextStyle(color: AppColors.jade, fontSize: 14),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 6),
+          child: Text(
+            m.remark.isEmpty ? '—' : m.remark,
+            maxLines: 3,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: m.remark.isEmpty
+                  ? AppColors.textFaint
+                  : AppColors.textMuted,
+              fontSize: 12,
+              height: 1.5,
+            ),
           ),
         ),
         Padding(
@@ -649,7 +666,24 @@ class _RosterPageState extends State<RosterPage> {
     final TextEditingController contribution = TextEditingController(
       text: '${m.contribution}',
     );
+    final TextEditingController remark = TextEditingController(text: m.remark);
     final List<String> subRoles = List<String>.of(m.subRoles);
+    String? avatar = m.avatar;
+
+    /// 弹窗里换头像：挑图 → 压缩 → 暂存，点「保存」才写进存档。
+    Future<void> pickAvatar(void Function(void Function()) setLocal) async {
+      final PickedBytes? picked = await pickBytes(
+        extensions: <String>['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp'],
+        dialogTitle: '选择头像',
+      );
+      if (picked == null) return;
+      final String? data = compressImageToDataUrl(picked.bytes);
+      if (data == null) {
+        _toast('图片读取失败');
+        return;
+      }
+      setLocal(() => avatar = data);
+    }
 
     await showDialog<void>(
       context: context,
@@ -658,12 +692,81 @@ class _RosterPageState extends State<RosterPage> {
             AlertDialog(
               title: Text('修改 ${m.name}'),
               content: SizedBox(
-                width: 420,
+                width: 460,
                 child: SingleChildScrollView(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: <Widget>[
+                      // 头像 / 立绘：进宗门后也能改（原来只有录入时能选头像）
+                      Row(
+                        children: <Widget>[
+                          MemberAvatar(
+                            member: Member(
+                              name: m.name,
+                              role: m.role,
+                              avatar: avatar,
+                              portrait: m.portrait,
+                              video: m.video,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: <Widget>[
+                                OutlinedButton.icon(
+                                  onPressed: () => pickAvatar(setLocal),
+                                  icon: const Icon(
+                                    Icons.face_retouching_natural,
+                                    size: 16,
+                                  ),
+                                  label: const Text(
+                                    '更换头像',
+                                    style: TextStyle(fontSize: 12),
+                                  ),
+                                ),
+                                OutlinedButton.icon(
+                                  onPressed: () async {
+                                    Navigator.pop(ctx);
+                                    await showPortraitDialog(context, m.name);
+                                  },
+                                  icon: const Icon(
+                                    Icons.image_outlined,
+                                    size: 16,
+                                  ),
+                                  label: const Text(
+                                    '立绘 / 视频',
+                                    style: TextStyle(fontSize: 12),
+                                  ),
+                                ),
+                                if (avatar != null)
+                                  TextButton(
+                                    onPressed: () =>
+                                        setLocal(() => avatar = null),
+                                    child: const Text(
+                                      '清除头像',
+                                      style: TextStyle(fontSize: 12),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 14),
+                      TextField(
+                        controller: remark,
+                        maxLines: 3,
+                        minLines: 2,
+                        decoration: const InputDecoration(
+                          labelText: '备注（仅管理员可改）',
+                          hintText: '例如：擅长炼丹、已闭关、掌门亲传…',
+                          alignLabelWithHint: true,
+                        ),
+                      ),
+                      const SizedBox(height: 14),
                       DropdownButtonFormField<String>(
                         initialValue: role,
                         decoration: const InputDecoration(labelText: '宗门职务'),
@@ -789,7 +892,9 @@ class _RosterPageState extends State<RosterPage> {
                       subRoles: subRoles
                           .where((String r) => r != role)
                           .toList(),
+                      remark: remark.text,
                     );
+                    state.setAvatar(m.name, avatar);
                     Navigator.pop(ctx);
                     _toast('已保存 ${m.name} 的资料');
                   },

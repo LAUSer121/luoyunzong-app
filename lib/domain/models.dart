@@ -57,6 +57,7 @@ class Member {
     this.video,
     List<String>? subRoles,
     this.contribution = 0,
+    this.remark = '',
   }) : subRoles = subRoles ?? <String>[];
 
   factory Member.fromJson(Map<String, Object?> json) {
@@ -70,6 +71,7 @@ class Member {
       video: _nullIfEmpty(json['video']),
       subRoles: _asStringList(json['subRoles']),
       contribution: _asInt(json['contribution']),
+      remark: _asString(json['remark']),
     );
   }
 
@@ -82,6 +84,9 @@ class Member {
   String? video;
   List<String> subRoles;
   int contribution;
+
+  /// 人物备注（只有管理员能改；随存档保存，会同步到云端）。
+  String remark;
 
   bool get isMortal => role == '凡人';
 
@@ -104,6 +109,7 @@ class Member {
     'video': video,
     'subRoles': subRoles,
     'contribution': contribution,
+    'remark': remark,
   };
 
   Member copy() => Member.fromJson(toJson());

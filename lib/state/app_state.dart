@@ -297,6 +297,7 @@ class AppState extends ChangeNotifier {
     String? subRank,
     int? contribution,
     List<String>? subRoles,
+    String? remark,
   }) {
     mutate((Archive a) {
       final Member? m = a.memberByName(name);
@@ -320,8 +321,18 @@ class AppState extends ChangeNotifier {
         m.contribution = contribution < 0 ? 0 : contribution;
       }
       if (subRoles != null) m.subRoles = List<String>.of(subRoles);
+      if (remark != null) m.remark = remark.trim();
       a.sortMembers();
     });
+  }
+
+  /// 只改备注（仅管理员；未解锁时拒绝并提示）。
+  ///
+  /// 备注存在存档里，所以会跟着云同步到其它设备。
+  bool setMemberRemark(String name, String remark) {
+    if (!_unlocked) return false;
+    mutate((Archive a) => a.memberByName(name)?.remark = remark.trim());
+    return true;
   }
 
   void deleteMember(String name) {

@@ -24,7 +24,30 @@ class _TasksPageState extends State<TasksPage> {
         for (final TaskGrade g in TaskGrade.values) g: TextEditingController(),
       };
   Archive? _synced;
-  bool _expandAll = true;
+
+  /// 展开的档位（自己管，替代 ExpansionTile + PageStorageKey：
+  /// 那套在「收起再展开」时会因为 key 变化重建，出现过整页空白）。
+  late final Set<String> _expanded = <String>{
+    for (final TaskGrade g in TaskGrade.values) g.key,
+  };
+
+  bool get _expandAll => _expanded.length == TaskGrade.values.length;
+
+  void _toggle(TaskGrade grade) {
+    setState(() {
+      if (!_expanded.remove(grade.key)) _expanded.add(grade.key);
+    });
+  }
+
+  void _toggleAll() {
+    setState(() {
+      if (_expandAll) {
+        _expanded.clear();
+      } else {
+        _expanded.addAll(TaskGrade.values.map((TaskGrade g) => g.key));
+      }
+    });
+  }
 
   @override
   void dispose() {
@@ -57,7 +80,7 @@ class _TasksPageState extends State<TasksPage> {
           subtitle: '点击标题展开 / 收起任务详情；「可接职务」可手动多选接取范围。',
           actions: <Widget>[
             OutlinedButton.icon(
-              onPressed: () => setState(() => _expandAll = !_expandAll),
+              onPressed: _toggleAll,
               icon: Icon(
                 _expandAll ? Icons.unfold_less : Icons.unfold_more,
                 size: 16,
@@ -80,110 +103,163 @@ class _TasksPageState extends State<TasksPage> {
         kDefaultTaskConditions[grade.key] ??
         <String>[];
     final Color accent = _gradeColor(grade);
+    final bool expanded = _expanded.contains(grade.key);
 
     return GlassCard(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-      child: Theme(
-        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
-        child: ExpansionTile(
-          key: PageStorageKey<String>('task-${grade.key}-$_expandAll'),
-          initiallyExpanded: _expandAll,
-          tilePadding: EdgeInsets.zero,
-          childrenPadding: const EdgeInsets.only(bottom: 14),
-          leading: Container(
-            width: 38,
-            height: 38,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: accent.withValues(alpha: 0.12),
-              border: Border.all(color: accent.withValues(alpha: 0.6)),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Text(
-              grade.emblem,
-              style: TextStyle(color: accent, fontSize: 16),
-            ),
-          ),
-          title: Row(
-            children: <Widget>[
-              Text(
-                grade.title,
-                style: const TextStyle(color: AppColors.gold, fontSize: 15),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  grade.description,
-                  style: const TextStyle(
-                    color: AppColors.textFaint,
-                    fontSize: 12,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          subtitle: Padding(
-            padding: const EdgeInsets.only(top: 6),
-            child: Wrap(
-              spacing: 6,
-              runSpacing: 6,
-              children: <Widget>[
-                const Text(
-                  '可接职务：',
-                  style: TextStyle(color: AppColors.textMuted, fontSize: 12),
-                ),
-                ...conditions.map(
-                  (String r) => Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 7,
-                      vertical: 2,
-                    ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          // 标题行：整行可点，右侧按钮单独响应（不会误触折叠）。
+          InkWell(
+            onTap: () => _toggle(grade),
+            borderRadius: BorderRadius.circular(10),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 10),
+              child: Row(
+                children: <Widget>[
+                  Container(
+                    width: 38,
+                    height: 38,
+                    alignment: Alignment.center,
                     decoration: BoxDecoration(
-                      color: accent.withValues(alpha: 0.10),
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: accent.withValues(alpha: 0.4)),
+                      color: accent.withValues(alpha: 0.12),
+                      border: Border.all(color: accent.withValues(alpha: 0.6)),
+                      borderRadius: BorderRadius.circular(10),
                     ),
                     child: Text(
-                      r,
-                      style: TextStyle(color: accent, fontSize: 11),
+                      grade.emblem,
+                      style: TextStyle(color: accent, fontSize: 16),
                     ),
                   ),
-                ),
-                if (conditions.isEmpty)
-                  const Text(
-                    '未设置',
-                    style: TextStyle(color: AppColors.textFaint, fontSize: 12),
-                  ),
-              ],
-            ),
-          ),
-          trailing: state.unlocked
-              ? OutlinedButton(
-                  onPressed: () => _editConditions(state, grade, conditions),
-                  style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 4,
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        Row(
+                          children: <Widget>[
+                            Text(
+                              grade.title,
+                              style: const TextStyle(
+                                color: AppColors.gold,
+                                fontSize: 15,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Text(
+                                grade.description,
+                                style: const TextStyle(
+                                  color: AppColors.textFaint,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.only(top: 6),
+                          child: Wrap(
+                            spacing: 6,
+                            runSpacing: 6,
+                            children: <Widget>[
+                              const Text(
+                                '可接职务：',
+                                style: TextStyle(
+                                  color: AppColors.textMuted,
+                                  fontSize: 12,
+                                ),
+                              ),
+                              ...conditions.map(
+                                (String r) => Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 7,
+                                    vertical: 2,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: accent.withValues(alpha: 0.10),
+                                    borderRadius: BorderRadius.circular(20),
+                                    border: Border.all(
+                                      color: accent.withValues(alpha: 0.4),
+                                    ),
+                                  ),
+                                  child: Text(
+                                    r,
+                                    style: TextStyle(
+                                      color: accent,
+                                      fontSize: 11,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              if (conditions.isEmpty)
+                                const Text(
+                                  '未设置',
+                                  style: TextStyle(
+                                    color: AppColors.textFaint,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ],
                     ),
-                    minimumSize: Size.zero,
                   ),
-                  child: const Text('设置可接职务', style: TextStyle(fontSize: 12)),
-                )
-              : null,
-          children: <Widget>[
-            TextField(
-              controller: _controllers[grade]!,
-              enabled: state.unlocked,
-              maxLines: 8,
-              minLines: 4,
-              onChanged: (String v) => state.setTaskText(grade, v),
-              decoration: InputDecoration(
-                hintText: '录入${grade.title}详情…（支持多行）',
-                alignLabelWithHint: true,
+                  if (state.unlocked) ...<Widget>[
+                    const SizedBox(width: 8),
+                    OutlinedButton(
+                      onPressed: () =>
+                          _editConditions(state, grade, conditions),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 4,
+                        ),
+                        minimumSize: Size.zero,
+                      ),
+                      child: const Text(
+                        '设置可接职务',
+                        style: TextStyle(fontSize: 12),
+                      ),
+                    ),
+                  ],
+                  const SizedBox(width: 4),
+                  Icon(
+                    expanded
+                        ? Icons.keyboard_arrow_up_rounded
+                        : Icons.keyboard_arrow_down_rounded,
+                    color: AppColors.textFaint,
+                    size: 22,
+                  ),
+                ],
               ),
             ),
-          ],
-        ),
+          ),
+          // 内容区：自己用 AnimatedSize 控制显隐（不依赖 ExpansionTile/PageStorage）。
+          AnimatedSize(
+            duration: const Duration(milliseconds: 160),
+            curve: Curves.easeOut,
+            alignment: Alignment.topCenter,
+            child: expanded
+                ? Padding(
+                    padding: const EdgeInsets.only(bottom: 14),
+                    child: TextField(
+                      controller: _controllers[grade]!,
+                      enabled: state.unlocked,
+                      maxLines: 8,
+                      minLines: 4,
+                      onChanged: (String v) => state.setTaskText(grade, v),
+                      decoration: InputDecoration(
+                        hintText: '录入${grade.title}详情…（支持多行）',
+                        alignLabelWithHint: true,
+                      ),
+                    ),
+                  )
+                : const SizedBox(width: double.infinity),
+          ),
+        ],
       ),
     );
   }
