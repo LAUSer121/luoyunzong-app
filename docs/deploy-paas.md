@@ -1,75 +1,92 @@
-# 把服务端部署到免费 PaaS（电脑关机也能用）
+# 把服务端部署到常开的机器（电脑关机也能用）
 
 现状：**数据库在 Aiven、图片在缤纷云，但接口进程跑在你电脑上** ——
 所以你电脑一关，手机/其它设备就同步不了（本机存档照常能用，联网后自动补齐）。
 
-把接口进程搬到一台常开的机器上就彻底解决。下面两条路都免费。
+把接口进程搬到一台常开的机器上就彻底解决。
+
+> 境外免费 PaaS 的实测结论（2026-09）：
+> - **Hugging Face Spaces**：官方原话「Static Spaces 免费，但 Docker/Gradio Space 用免费
+>   cpu-basic 需要 PRO（$9/月）」→ 走不通（而且国内访问本就不稳）。
+> - **Render**：免费实例要个人 workspace 或绑定支付方式，team workspace 直接 402 → 要信用卡。
+> - **Railway / Fly.io / Koyeb**：都要信用卡。
+> - **Vercel**：注册在部分网络环境下打不开。
+>
+> 所以下面主推「国内轻量服务器」，并保留 Vercel 的配置（能用的时候直接跑）。
 
 ---
 
-## 路线 A：Render（推荐，免费档）
+## 方案 A：国内轻量云服务器（推荐，¥60–100/年，支付宝付款）
 
-### A1. 点几下（Blueprint）
+优点：国内 IP，手机在外面直连、不用科学上网；固定地址；不会被休眠；一条命令装完。
 
-1. 打开 <https://dashboard.render.com> → 用 GitHub 登录（仓库是公开的，不用额外授权）；
-2. **New → Blueprint** → 选 `LAUSer121/luoyunzong-app` → Render 会自动读到根目录的 `render.yaml`；
-3. 面板只会让你填两个密钥（其余值我在 `render.yaml` 里已经写好了）：
+1. 买一台（新用户常有首年特惠，1核1G 够用）：
+   - 腾讯云轻量应用服务器 <https://cloud.tencent.com/product/lighthouse>
+   - 阿里云轻量应用服务器 <https://www.aliyun.com/product/swas>
+   - 系统选 **Ubuntu 22.04**，买完在控制台记下「公网 IP」和 root 密码；
+2. 在控制台的**安全组 / 防火墙**里放行 **TCP 8080**（这一步必须做）；
+3. 打开控制台的 **网页终端**（或用自己的 SSH），粘贴下面两行（把两个值换成你的）：
 
-   | 变量 | 值 |
-   | --- | --- |
-   | `DB_PASSWORD` | `server/.env` 里的 `DB_PASSWORD` |
-   | `API_TOKEN` | `server/.env` 里的 `API_TOKEN` |
+   ```bash
+   curl -fsSL https://cdn.jsdelivr.net/gh/LAUSer121/luoyunzong-app@main/server/install-vps.sh -o install.sh
+   sudo bash install.sh --token 你的API_TOKEN --password 你的数据库密码
+   ```
 
-4. 点 **Apply / Deploy**，等 2~4 分钟，拿到形如
-   `https://luoyunzong-api.onrender.com` 的地址；
-5. 浏览器打开 `https://luoyunzong-api.onrender.com/api/health`，看到
-   `{"ok":true,...}` 就成功了。
+   脚本会：装 Node 20 → 把代码放到 `/opt/luoyunzong` → 写 `.env` → 注册 systemd
+   开机自启与崩溃自动重启 → 放行端口 → 打印 `http://公网IP:8080`。
+   重复执行＝原地升级（拉最新代码 + 重装依赖 + 重启服务）。
 
-### A2. 用 API Key 一键创建（我可以代做）
+4. 浏览器打开 `http://公网IP:8080/api/health`，看到 `{"ok":true,...}` 就成功；
+5. 把地址写进 CI（见文末「部署完之后」），重新构建安装包。
 
-在 Render → **Account Settings → API Keys → Create API Key**，把 Key 发我，
-我直接调 Render API 把服务建好（含两个密钥、区域、健康检查），
-并把 CI 里的 `LUOYUNZONG_API_BASE` 改成新地址、重新构建一次。
+> 两个值在 `server/.env` 里：`API_TOKEN` 与 `DB_PASSWORD`。
+> 想要 HTTPS（可选）：给 IP 绑个域名后装 Caddy：`apt install caddy` →
+> `/etc/caddy/Caddyfile` 写 `api.你的域名.com { reverse_proxy 127.0.0.1:8080 }` → `systemctl reload caddy`。
+> 没有域名也行 —— App 已允许明文 HTTP，`http://IP:8080` 直接可用。
 
-命令大致是：
+常用运维：
 
 ```bash
-curl -X POST https://api.render.com/v1/services \
-  -H "Authorization: Bearer $RENDER_API_KEY" \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "type": "web_service",
-    "name": "luoyunzong-api",
-    "ownerId": "<你的 ownerId>",
-    "repo": "https://github.com/LAUSer121/luoyunzong-app",
-    "branch": "main",
-    "autoDeploy": "yes",
-    "serviceDetails": {
-      "env": "docker",
-      "plan": "free",
-      "region": "singapore",
-      "healthCheckPath": "/api/health",
-      "envVars": [
-        {"key": "DB_HOST", "value": "mysql-3818918f-jsjsjsnxjns-6e11.g.aivencloud.com"},
-        {"key": "DB_PORT", "value": "23483"},
-        {"key": "DB_USER", "value": "avnadmin"},
-        {"key": "DB_NAME", "value": "defaultdb"},
-        {"key": "DB_SSL", "value": "true"},
-        {"key": "DB_PASSWORD", "value": "..."},
-        {"key": "API_TOKEN", "value": "..."}
-      ]
-    }
-  }'
+systemctl status luoyunzong-api      # 看状态
+systemctl restart luoyunzong-api     # 重启
+journalctl -u luoyunzong-api -f      # 看日志
 ```
 
 ---
 
-## 路线 B：Railway（免费试用额度，构建更快）
+## 方案 B：Vercel 免费版（不用卡、不休眠；代码已就绪）
 
-1. <https://railway.app> → New Project → **Deploy from GitHub repo** → 选本仓库；
-2. Railway 会读根目录 `railway.json`（用 `server/Dockerfile` 构建）；
-3. 在 **Variables** 里加：`DB_HOST` `DB_PORT` `DB_USER` `DB_PASSWORD` `DB_NAME` `DB_SSL=true` `API_TOKEN`；
-4. Settings → Networking → **Generate Domain**，拿到 `https://xxx.up.railway.app`。
+仓库里已经准备好：根 `package.json`、`api/index.mjs`（serverless 入口）、`vercel.json`。
+大文件走「预签名直传缤纷云」，不受 Vercel 4.5MB 请求体上限影响。
+
+1. <https://vercel.com> 用 GitHub 登录 → **Add New → Project** → 选本仓库 → Import；
+2. 在 **Environment Variables** 里加上：
+
+   | 变量 | 值 |
+   | --- | --- |
+   | `DB_HOST` | `mysql-3818918f-jsjsjsnxjns-6e11.g.aivencloud.com` |
+   | `DB_PORT` | `23483` |
+   | `DB_USER` | `avnadmin` |
+   | `DB_PASSWORD` | 见 `server/.env` |
+   | `DB_NAME` | `defaultdb` |
+   | `DB_SSL` | `true` |
+   | `API_TOKEN` | 见 `server/.env` |
+   | `MAX_UPLOAD_MB` | `512` |
+
+3. Deploy → 访问 `https://<项目>.vercel.app/api/health` 验证；
+4. 把地址写进 CI。
+
+> 注意：**vercel.app 在国内经常连不上**（可能需要科学上网），这也是主推方案 A 的原因。
+> Vercel 的磁盘是只读的，图片视频必须落缤纷云（现在是这个配置）。
+
+---
+
+## 方案 C：Render（需要信用卡）/ Railway（需要额度）
+
+仓库里保留着 `render.yaml` / `railway.json`，账号能用的时候直接部署：
+
+- Render：New → Blueprint → 选本仓库 → 填 `DB_PASSWORD`、`API_TOKEN` → Deploy；
+- Railway：New Project → Deploy from GitHub → 加同样的环境变量 → Generate Domain。
 
 ---
 
@@ -78,38 +95,33 @@ curl -X POST https://api.render.com/v1/services \
 把新地址写进 CI，让**新构建出来的安装包**默认连云：
 
 ```bash
-gh variable set LUOYUNZONG_API_BASE --body "https://luoyunzong-api.onrender.com"
+# 国内服务器（方案 A）
+gh variable set LUOYUNZONG_API_BASE --body "http://你的公网IP:8080"
+# 或者 Vercel / Render（方案 B/C）
+gh variable set LUOYUNZONG_API_BASE --body "https://xxx.vercel.app"
+
 gh workflow run build.yml --ref main
 ```
 
-> 如果手机也要在外网用，地址必须是 **https** 的 PaaS 域名（自带证书），
-> 不能再是 `http://192.168.x.x:8080` 那种局域网地址。
-
----
-
-## 两个注意点
-
-1. **免费档会休眠**：Render 免费实例闲置约 15 分钟后休眠，下一次请求要等十几秒唤醒。
-   App 里表现为「云端暂不可达，稍后会自动重试」，**不会丢数据**；
-   你也可以用任意定时任务每 10 分钟访问一次 `/api/health` 把它保活。
-2. **对象存储必须有**：PaaS 的磁盘是临时的，重启就没了。
-   把「设置 → 云端资源存储」配成**缤纷云**（现在已经是了），
-   数据库里只留索引，图片视频都在缤纷云 ✓。
-   记得先把缤纷云子账户 `mymedia` 对 `my-media` 桶的读写权限打开，否则上传会 403。
+> 想同时保留本机兜底，可以写两个地址（逗号分隔），App 启动按顺序探测：
+> `http://你的公网IP:8080,http://127.0.0.1:8080`
 
 ---
 
 ## 本地那台电脑上的服务端怎么办
 
-部署好 PaaS 之后，你电脑上的服务端就可以不用了：
+部署好之后，你电脑上的服务端就可以不用了：
 
 ```powershell
 powershell -File server\start-server.ps1 -Uninstall   # 取消登录自启
 ```
 
-想留作备用也行 —— 把 `LUOYUNZONG_API_BASE` 写成两个地址（逗号分隔），
-App 启动会按顺序探测，哪个通用哪个：
+---
 
-```bash
-gh variable set LUOYUNZONG_API_BASE --body "https://luoyunzong-api.onrender.com,http://127.0.0.1:8080"
-```
+## 两个注意点
+
+1. **对象存储必须有**（PaaS 方案）：PaaS 磁盘是临时的，重启就没了。
+   现在配置的就是缤纷云 ✓（子账户 `mymedia` 的读写权限已经打开，实测直传 200）。
+2. **免费档休眠**（Render/Vercel 无此问题，Render 有）：Render 免费实例闲置约 15 分钟休眠，
+   下次请求等十几秒唤醒；App 会显示「云端暂不可达，稍后自动重试」，不丢数据。
+
