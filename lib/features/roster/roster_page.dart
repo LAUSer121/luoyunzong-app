@@ -526,25 +526,11 @@ class _RosterPageState extends State<RosterPage> {
       padding: const EdgeInsets.fromLTRB(14, 8, 14, 14),
       child: Column(
         children: <Widget>[
-          Padding(
-            padding: const EdgeInsets.only(top: 8, bottom: 4),
+          const Padding(
+            padding: EdgeInsets.only(top: 8, bottom: 4),
             child: SectionTitle(
               '成员名册',
               subtitle: '按职务权重排序，前三名金银铜高亮；「备注」填了就直接当姓名显示',
-              trailing: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: <Widget>[
-                  const Text(
-                    '显示原名',
-                    style: TextStyle(color: AppColors.textFaint, fontSize: 12),
-                  ),
-                  Switch(
-                    value: state.showOriginalName,
-                    onChanged: state.setShowOriginalName,
-                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  ),
-                ],
-              ),
             ),
           ),
           SingleChildScrollView(
@@ -614,7 +600,7 @@ class _RosterPageState extends State<RosterPage> {
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
               MedalName(m.displayName, i),
-              if (state.showOriginalName &&
+              if (m.showOriginalName &&
                   m.remark.isNotEmpty &&
                   m.remark != m.name)
                 Padding(
@@ -716,6 +702,8 @@ class _RosterPageState extends State<RosterPage> {
     final TextEditingController remark = TextEditingController(text: m.remark);
     final List<String> subRoles = List<String>.of(m.subRoles);
     String? avatar = m.avatar;
+    // 名单里是否标出原名（默认不显示；有备注时才在弹窗里出现这个开关）
+    bool showOriginal = m.showOriginalName;
 
     /// 弹窗里换头像：挑图 → 压缩 → 暂存，点「保存」才写进存档。
     Future<void> pickAvatar(void Function(void Function()) setLocal) async {
@@ -798,13 +786,36 @@ class _RosterPageState extends State<RosterPage> {
                         controller: remark,
                         maxLines: 3,
                         minLines: 2,
+                        onChanged: (String v) => setLocal(() {}),
                         decoration: const InputDecoration(
                           labelText: '显示名 / 备注（仅管理员可改）',
                           hintText: '填了就替换名单里显示的姓名；留空则显示原名',
                           alignLabelWithHint: true,
                         ),
                       ),
-                      const SizedBox(height: 14),
+                      // 有备注（也就是用了显示名）时才出现「显示原名」开关；
+                      // 默认不显示原名，这一项存在存档里 → 会同步到 MySQL 与其它设备。
+                      if (remark.text.trim().isNotEmpty)
+                        SwitchListTile(
+                          contentPadding: EdgeInsets.zero,
+                          value: showOriginal,
+                          onChanged: (bool v) =>
+                              setLocal(() => showOriginal = v),
+                          title: const Text(
+                            '显示原名',
+                            style: TextStyle(fontSize: 14),
+                          ),
+                          subtitle: Text(
+                            showOriginal
+                                ? '名单里在「${remark.text.trim()}」下面标出原名：${m.name}'
+                                : '名单里只显示「${remark.text.trim()}」（默认不显示原名）',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: AppColors.textFaint,
+                            ),
+                          ),
+                        ),
+                      const SizedBox(height: 6),
                       DropdownButtonFormField<String>(
                         initialValue: role,
                         decoration: const InputDecoration(labelText: '宗门职务'),
@@ -931,6 +942,7 @@ class _RosterPageState extends State<RosterPage> {
                           .where((String r) => r != role)
                           .toList(),
                       remark: remark.text,
+                      showOriginalName: showOriginal,
                     );
                     state.setAvatar(m.name, avatar);
                     Navigator.pop(ctx);

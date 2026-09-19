@@ -9,9 +9,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:luoyunzong/core/constants.dart';
 import 'package:luoyunzong/data/archive_codec.dart';
 import 'package:luoyunzong/data/asset_split.dart';
 import 'package:luoyunzong/data/local_repository.dart';
+import 'package:luoyunzong/data/settings_store.dart';
 import 'package:luoyunzong/domain/models.dart';
 import 'package:luoyunzong/features/roster/roster_page.dart';
 import 'package:luoyunzong/state/app_state.dart';
@@ -105,15 +107,13 @@ void main() {
     expect(state.archive.background.type, isNull, reason: '删的是当前背景 → 回落默认');
   });
 
-  testWidgets('「显示原名」开关可切换，且只存本机（默认开）', (WidgetTester tester) async {
+  testWidgets('有备注时默认只显示备注，不再显示「原名」行', (WidgetTester tester) async {
     tester.view.physicalSize = const Size(1400, 1000);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
 
-    final MemoryBackend backend = MemoryBackend();
     final AppState state = AppState(
-      repository: LocalRepository(backend: backend),
-      settings: null,
+      repository: LocalRepository(backend: MemoryBackend()),
     );
     state.archive.memberList.add(
       Member(name: '韩立', role: '内门弟子', remark: '韩天尊'),
@@ -127,15 +127,95 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(state.showOriginalName, isTrue, reason: '默认显示原名');
-    expect(find.text('原名：韩立'), findsOneWidget);
-    expect(find.text('显示原名'), findsOneWidget);
+    // 名单里直接用备注当姓名；默认不显示原名，也没有全局开关了
+    expect(find.text('韩天尊'), findsOneWidget);
+    expect(find.text('原名：韩立'), findsNothing);
+    expect(find.text('显示原名'), findsNothing, reason: '全局开关已去掉');
+  });
 
-    await tester.tap(find.byType(Switch));
+  test('每个成员的「显示原名」存在存档里（会同步到 MySQL 与其它设备）', () {
+    final Archive archive = Archive()
+      ..memberList.addAll(<Member>[
+        Member(name: '韩立', role: '内门弟子', remark: '韩天尊'),
+        Member(
+          name: '厉飞雨',
+          role: '外门弟子',
+          remark: '厉道友',
+          showOriginalName: true,
+        ),
+      ]);
+
+    final Archive back = ArchiveCodec.decode(ArchiveCodec.encodeJson(archive))!;
+    expect(back.memberList[0].showOriginalName, isFalse, reason: '默认不显示原名');
+    expect(back.memberList[1].showOriginalName, isTrue);
+
+    // 老存档没有这个字段 → 默认 false，不炸
+    final Archive legacy = Archive.fromJson(<String, Object?>{
+      'archiveVersion': 4,
+      'memberList': <Object?>[
+        <String, Object?>{'name': '旧人', 'role': '外门弟子', 'remark': '老备注'},
+      ],
+    });
+    expect(legacy.memberList.single.showOriginalName, isFalse);
+  });
+
+  testWidgets('管理员在「修改」弹窗里打开「显示原名」→ 名单标出原名并存进存档', (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(1400, 1100);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    final AppState state = AppState(
+      repository: LocalRepository(backend: MemoryBackend()),
+      settings: SettingsStore(),
+    );
+    state.unlock(kDefaultAdminPassword);
+    state.archive.memberList.add(
+      Member(name: '韩立', role: '内门弟子', remark: '韩天尊'),
+    );
+
+    await tester.pumpWidget(
+      ChangeNotifierProvider<AppState>.value(
+        value: state,
+        child: const MaterialApp(home: Scaffold(body: RosterPage())),
+      ),
+    );
     await tester.pumpAndSettle();
 
-    expect(state.showOriginalName, isFalse);
-    expect(find.text('原名：韩立'), findsNothing, reason: '关掉后不再显示原名行');
-    expect(find.text('韩天尊'), findsOneWidget, reason: '备注仍然是姓名');
+    await tester.tap(find.text('修改'));
+    await tester.pumpAndSettle();
+
+    // 有备注 → 弹窗里出现「显示原名」开关（默认关）
+    expect(find.text('显示原名'), findsOneWidget);
+    final Finder dialogSwitch = find.descendant(
+      of: find.byType(AlertDialog),
+      matching: find.byType(Switch),
+    );
+    expect(tester.widget<Switch>(dialogSwitch).value, isFalse);
+
+    await tester.tap(dialogSwitch);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('保存'));
+    await tester.pumpAndSettle();
+
+    expect(state.archive.memberList.single.showOriginalName, isTrue);
+    expect(find.text('原名：韩立'), findsOneWidget, reason: '打开后名单里标出原名');
+
+    // 再打开一次关掉 → 原名行消失
+    await tester.tap(find.text('修改'));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.descendant(
+        of: find.byType(AlertDialog),
+        matching: find.byType(Switch),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('保存'));
+    await tester.pumpAndSettle();
+
+    expect(state.archive.memberList.single.showOriginalName, isFalse);
+    expect(find.text('原名：韩立'), findsNothing);
+    await state.flush();
   });
 }

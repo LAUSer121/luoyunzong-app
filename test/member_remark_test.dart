@@ -83,7 +83,7 @@ void main() {
 
     expect(find.text('备注'), findsNothing, reason: '不再单独开一列');
     expect(find.text('擅长炼丹'), findsOneWidget, reason: '备注要顶在姓名那一列显示');
-    expect(find.text('原名：韩立'), findsOneWidget, reason: '标出原名便于认人');
+    expect(find.text('原名：韩立'), findsNothing, reason: '默认不显示原名（可在修改弹窗里打开）');
     expect(find.text('修改'), findsNothing, reason: '未解锁时没有修改按钮');
   });
 
@@ -143,7 +143,7 @@ void main() {
     expect(state.archive.memberList.single.remark, '首席炼丹师');
     expect(state.archive.memberList.single.displayName, '首席炼丹师');
     expect(find.text('首席炼丹师'), findsWidgets, reason: '名单里直接显示这个');
-    expect(find.text('原名：韩立'), findsOneWidget);
+    expect(find.text('原名：韩立'), findsNothing, reason: '默认不显示原名');
 
     await state.flush(); // 收掉 800ms 防抖定时器
   });

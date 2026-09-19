@@ -47,22 +47,6 @@ class AppState extends ChangeNotifier {
   int get videoMaxBytes => videoMaxMB * 1024 * 1024;
   int get imageMaxBytes => imageMaxMB * 1024 * 1024;
 
-  /// 名单里是否显示「原名：xxx」（纯本机显示偏好，保存到设备本地）。
-  bool showOriginalName = true;
-
-  Future<void> loadLocalUiPrefs() async {
-    final SettingsStore? store = settings;
-    if (store == null) return;
-    showOriginalName = await store.showOriginalName();
-    notifyListeners();
-  }
-
-  void setShowOriginalName(bool value) {
-    showOriginalName = value;
-    unawaited(settings?.setShowOriginalName(value) ?? Future<void>.value());
-    notifyListeners();
-  }
-
   /// 从服务端刷新上传上限（启动时、以及管理员保存后调用）。
   Future<void> refreshUploadLimits() async {
     final ApiClient? client = cloudClient;
@@ -340,6 +324,7 @@ class AppState extends ChangeNotifier {
     int? contribution,
     List<String>? subRoles,
     String? remark,
+    bool? showOriginalName,
   }) {
     mutate((Archive a) {
       final Member? m = a.memberByName(name);
@@ -364,6 +349,7 @@ class AppState extends ChangeNotifier {
       }
       if (subRoles != null) m.subRoles = List<String>.of(subRoles);
       if (remark != null) m.remark = remark.trim();
+      if (showOriginalName != null) m.showOriginalName = showOriginalName;
       a.sortMembers();
     });
   }

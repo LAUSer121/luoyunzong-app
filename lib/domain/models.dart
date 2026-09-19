@@ -58,6 +58,7 @@ class Member {
     List<String>? subRoles,
     this.contribution = 0,
     this.remark = '',
+    this.showOriginalName = false,
   }) : subRoles = subRoles ?? <String>[];
 
   factory Member.fromJson(Map<String, Object?> json) {
@@ -72,6 +73,7 @@ class Member {
       subRoles: _asStringList(json['subRoles']),
       contribution: _asInt(json['contribution']),
       remark: _asString(json['remark']),
+      showOriginalName: _asBool(json['showOriginalName']),
     );
   }
 
@@ -95,6 +97,11 @@ class Member {
     return r.isEmpty ? name : r;
   }
 
+  /// 名单里要不要在备注（显示名）下面标出「原名：xxx」。
+  /// 默认**不显示**；有备注时，「修改」人物弹窗里会有这个开关。
+  /// 存在存档里，因此会同步到 MySQL 与其它设备。
+  bool showOriginalName;
+
   bool get isMortal => role == '凡人';
 
   /// 修为综合分：凡人 0，主阶 ×10 + 小阶。
@@ -117,6 +124,7 @@ class Member {
     'subRoles': subRoles,
     'contribution': contribution,
     'remark': remark,
+    if (showOriginalName) 'showOriginalName': true,
   };
 
   Member copy() => Member.fromJson(toJson());
