@@ -65,11 +65,21 @@ class AppState extends ChangeNotifier {
     _dirty = true;
     notifyListeners();
     await _persist();
-    unawaited(
-      bgm
-          .syncFromArchive(archive)
-          .catchError((Object _) => bgm.markUnavailable()),
-    );
+    refreshBgmFromArchive();
+  }
+
+  /// 按当前存档刷新曲单；BGM 是附带能力，任何失败都不该影响数据同步。
+  void refreshBgmFromArchive() {
+    try {
+      unawaited(
+        bgm
+            .syncFromArchive(archive)
+            .catchError((Object _) => bgm.markUnavailable()),
+      );
+    } catch (_) {
+      // 例如没有 Flutter 绑定（纯 Dart 测试）时播放器建不起来。
+      bgm.markUnavailable();
+    }
   }
 
   /// 同步时留一份本机快照（冲突时保留落败的一份，可手动恢复）。
@@ -136,11 +146,7 @@ class AppState extends ChangeNotifier {
     bgm.netease = netease;
     bgm.bindPlayerEvents();
     // BGM 是附带能力：不阻塞启动，出错也不影响数据加载（各平台行为一致）。
-    unawaited(
-      bgm
-          .syncFromArchive(archive)
-          .catchError((Object _) => bgm.markUnavailable()),
-    );
+    refreshBgmFromArchive();
   }
 
   /// 立即保存（忽略防抖）。

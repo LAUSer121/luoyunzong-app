@@ -10,10 +10,18 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import 'package:luoyunzong/core/bootstrap.dart';
 import 'package:luoyunzong/data/api_client.dart';
 import 'package:luoyunzong/data/api_repository.dart';
+import 'package:luoyunzong/data/local_repository.dart';
+import 'package:luoyunzong/data/settings_store.dart';
 import 'package:luoyunzong/domain/models.dart';
+import 'package:luoyunzong/state/app_state.dart';
 import 'package:luoyunzong/state/sync_manager.dart';
+
+import 'widget_test.dart' show MemoryBackend;
 
 /// 约 60KB 的假「立绘」：超过 48KB 阈值，会被切分进资源表。
 final String _portraitDataUrl =
@@ -28,6 +36,12 @@ Archive _archive(String notice) {
 }
 
 void main() {
+  // 真机联调要发真实 HTTP：先起一个测试绑定（AppState 会去建 BGM 播放器，
+  // 需要 Flutter 绑定），再把 flutter_test 默认装的「所有请求都返回 400」
+  // 的 HttpOverrides 摘掉，恢复真实网络。
+  TestWidgetsFlutterBinding.ensureInitialized();
+  HttpOverrides.global = null;
+
   final String? flag = Platform.environment['LUOYUNZONG_E2E'];
   final String token = Platform.environment['LUOYUNZONG_E2E_TOKEN'] ?? '';
   final String base =
@@ -116,6 +130,52 @@ void main() {
     stdout.writeln('[E2E] 5 快照恢复读取 OK');
 
     expect(syncedAt, isNotEmpty);
+    sync.dispose();
+    client.close();
+  }, skip: flag == '1' ? false : '需要本地服务端；设置 LUOYUNZONG_E2E=1 后运行');
+
+  test('启动装配全链路：真实服务端 → AppState → 本地落盘', () async {
+    final ApiClient client = ApiClient(baseUrl: base, token: token);
+    final MemoryBackend backend = MemoryBackend();
+
+    // 1) 装配：真机上这一步会挑出可连通的云端地址。
+    final ResolvedRepository resolved = await resolveRepository(
+      candidates: <String>[base],
+      token: token,
+      local: LocalRepository(backend: backend),
+    );
+    expect(resolved.repository, isA<ApiRepository>(), reason: '服务端可达时应走云端');
+    expect(resolved.cloud, isNotNull);
+
+    // 2) 应用状态（本文件不初始化 Flutter 绑定，故不调 init()；
+    //    这里验证的是同步把云端内容写进 AppState 与本地存档这条链路）。
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    final SettingsStore settings = SettingsStore();
+    final AppState state = AppState(
+      repository: resolved.repository,
+      localStore: resolved.local,
+      settings: settings,
+    );
+
+    // 3) 另一台设备改了云端 → 本机手动同步应拉下来，并落回本地存档。
+    await client.putArchive(_archive('云端新版本')..motto = '别的设备改的');
+    await Future<void>.delayed(const Duration(milliseconds: 1000));
+
+    final SyncManager sync = await attachSync(
+      state,
+      settings: settings,
+      cloud: resolved.cloud,
+    );
+    final SyncResult result = await sync.syncNow();
+    expect(result.action, SyncAction.pulled, reason: result.message);
+    expect(state.archive.notice, '云端新版本');
+    expect(state.archive.motto, '别的设备改的');
+    // 数据源是云端，所以存档落回云端；被覆盖的本机旧版本一定要落到本机快照。
+    final String? snapshot = await backend.readSnapshot();
+    expect(snapshot, isNotNull, reason: '拉取前要备份本机旧版本');
+    expect(snapshot, isNot(contains('云端新版本')));
+    stdout.writeln('[E2E] 6 启动装配 + 拉取落盘 OK（${result.message}）');
+
     sync.dispose();
     client.close();
   }, skip: flag == '1' ? false : '需要本地服务端；设置 LUOYUNZONG_E2E=1 后运行');
