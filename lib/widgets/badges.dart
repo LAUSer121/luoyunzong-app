@@ -19,29 +19,52 @@ class RoleBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final Color c = roleColor(role);
+    final bool strong = roleIsEmphasized(role);
     return Container(
       padding: EdgeInsets.symmetric(
-        horizontal: dense ? 7 : 9,
+        horizontal: dense ? 8 : 10,
         vertical: dense ? 2 : 4,
       ),
       decoration: BoxDecoration(
-        color: c.withValues(alpha: 0.12),
-        border: Border.all(color: c.withValues(alpha: 0.55)),
+        // 高位职务：左亮右暗的渐变底 + 外发光；普通职务：淡淡的同色底
+        gradient: strong
+            ? LinearGradient(
+                colors: <Color>[
+                  c.withValues(alpha: 0.26),
+                  c.withValues(alpha: 0.06),
+                ],
+              )
+            : null,
+        color: strong ? null : c.withValues(alpha: 0.12),
+        border: Border.all(color: c.withValues(alpha: strong ? 0.62 : 0.42)),
         borderRadius: BorderRadius.circular(6),
+        boxShadow: strong
+            ? <BoxShadow>[
+                BoxShadow(
+                  color: c.withValues(alpha: 0.28),
+                  blurRadius: 10,
+                  spreadRadius: -2,
+                ),
+              ]
+            : null,
       ),
       child: Text(
         role,
         style: TextStyle(
           color: c,
-          fontSize: dense ? 11 : 12,
-          letterSpacing: 0.5,
+          fontSize: dense ? 11 : 12.5,
+          letterSpacing: 0.8,
+          fontWeight: strong ? FontWeight.w700 : FontWeight.w500,
+          shadows: strong
+              ? <Shadow>[Shadow(color: c.withValues(alpha: 0.7), blurRadius: 8)]
+              : null,
         ),
       ),
     );
   }
 }
 
-/// 境界徽章：凡人固定显示「凡体」。
+/// 境界徽章：凡人固定显示「凡体」；高境界带光晕。
 class RealmBadge extends StatelessWidget {
   const RealmBadge({
     required this.mainRank,
@@ -65,21 +88,45 @@ class RealmBadge extends StatelessWidget {
     return _pill('$mainRank境$subRank', rankColor(mainRank));
   }
 
-  Widget _pill(String text, Color color) => Container(
-    padding: EdgeInsets.symmetric(
-      horizontal: dense ? 7 : 9,
-      vertical: dense ? 2 : 4,
-    ),
-    decoration: BoxDecoration(
-      color: color.withValues(alpha: 0.10),
-      border: Border.all(color: color.withValues(alpha: 0.45)),
-      borderRadius: BorderRadius.circular(6),
-    ),
-    child: Text(
-      text,
-      style: TextStyle(color: color, fontSize: dense ? 11 : 12),
-    ),
-  );
+  Widget _pill(String text, Color color) {
+    final Color? glow = rankGlow(mainRank);
+    return Container(
+      padding: EdgeInsets.symmetric(
+        horizontal: dense ? 8 : 10,
+        vertical: dense ? 2 : 4,
+      ),
+      decoration: BoxDecoration(
+        gradient: glow == null
+            ? null
+            : LinearGradient(
+                colors: <Color>[
+                  color.withValues(alpha: 0.22),
+                  color.withValues(alpha: 0.05),
+                ],
+              ),
+        color: glow == null ? color.withValues(alpha: 0.10) : null,
+        border: Border.all(color: color.withValues(alpha: 0.5)),
+        borderRadius: BorderRadius.circular(6),
+        boxShadow: glow == null
+            ? null
+            : <BoxShadow>[
+                BoxShadow(color: glow, blurRadius: 12, spreadRadius: -3),
+              ],
+      ),
+      child: Text(
+        text,
+        style: TextStyle(
+          color: color,
+          fontSize: dense ? 11 : 12.5,
+          letterSpacing: 0.6,
+          fontWeight: glow == null ? FontWeight.w500 : FontWeight.w700,
+          shadows: glow == null
+              ? null
+              : <Shadow>[Shadow(color: glow, blurRadius: 10)],
+        ),
+      ),
+    );
+  }
 }
 
 /// 兼任徽章组：普通兼任、峰主·某峰、通天塔榜首。

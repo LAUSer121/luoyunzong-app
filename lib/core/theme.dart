@@ -22,32 +22,51 @@ abstract final class AppColors {
   static const Color violet = Color(0xFFD4A0FF);
 }
 
-/// 职务徽章配色。
+/// 职务徽章配色（沿用旧版网页那套：高位职务更亮、更饱和）。
 Color roleColor(String role) => switch (role) {
-  '宗主' => const Color(0xFFFFD766),
-  '长老' => const Color(0xFFD4A0FF),
-  '峰主' => const Color(0xFFFFC98A),
-  '执事' => const Color(0xFF7DB8FF),
-  '第一天骄' => const Color(0xFFFFE082),
-  '第二天骄' => const Color(0xFFF7D36A),
-  '天骄' => const Color(0xFFF7E2A8),
-  '核心弟子' => const Color(0xFF9AE6C8),
-  '内门弟子' => const Color(0xFF8FD3F4),
-  '外门弟子' => const Color(0xFFC9BFAE),
+  '宗主' => const Color(0xFFFFE27A),
+  '长老' => const Color(0xFFFF8A8A),
+  '峰主' => const Color(0xFFFFB86B),
+  '执事' => const Color(0xFFD4A0FF),
+  '第一天骄' => const Color(0xFFFFF7C2),
+  '第二天骄' => const Color(0xFFFF9F69),
+  '天骄' => const Color(0xFFFFD766),
+  '核心弟子' => const Color(0xFFB7FF9E),
+  '内门弟子' => const Color(0xFF90CAF9),
+  '外门弟子' => const Color(0xFFB0BEC5),
   '凡人' => const Color(0xFF9AA0A6),
-  '通天塔榜首' => const Color(0xFFFFD766),
+  '通天塔榜首' => const Color(0xFFFFF7C2),
   _ => AppColors.textMuted,
 };
 
-/// 境界配色。
+/// 高位职务：带描边 + 渐变底 + 外发光，看起来更「有分量」。
+bool roleIsEmphasized(String role) => const <String>{
+  '宗主',
+  '长老',
+  '峰主',
+  '第一天骄',
+  '第二天骄',
+  '天骄',
+  '通天塔榜首',
+}.contains(role);
+
+/// 境界配色（旧版网页的色板：炼气灰 → 筑基蓝 → 金丹金 → 元婴橙 → 化神紫 → 炼虚白）。
 Color rankColor(String mainRank) => switch (mainRank) {
-  '炼气' => const Color(0xFF9ADCA0),
-  '筑基' => const Color(0xFF7DDFF4),
-  '金丹' => const Color(0xFFFFD766),
-  '元婴' => const Color(0xFFD4A0FF),
-  '化神' => const Color(0xFFFF9F8A),
-  '炼虚' => const Color(0xFFF7E2A8),
+  '炼气' => const Color(0xFF9FB0B5),
+  '筑基' => const Color(0xFF4FC3F7),
+  '金丹' => const Color(0xFFFFD54F),
+  '元婴' => const Color(0xFFFF9100),
+  '化神' => const Color(0xFFE040FB),
+  '炼虚' => const Color(0xFFFFFFFF),
   _ => AppColors.textMuted,
+};
+
+/// 高境界额外加一层光晕（化神、炼虚）。
+Color? rankGlow(String mainRank) => switch (mainRank) {
+  '炼虚' => const Color(0x99B478FF),
+  '化神' => const Color(0x66E040FB),
+  '元婴' => const Color(0x44FF9100),
+  _ => null,
 };
 
 /// 名次配色：金 / 浅金 / 暖铜。

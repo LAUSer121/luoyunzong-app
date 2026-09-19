@@ -64,6 +64,32 @@ class _RosterPageState extends State<RosterPage> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
+  /// 媒体类操作统一用圆形图标按钮（比文字按钮干净）。
+  Widget _mediaIconButton({
+    required IconData icon,
+    required String tooltip,
+    required Color color,
+    required VoidCallback onPressed,
+  }) {
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        color: color.withValues(alpha: 0.10),
+        shape: CircleBorder(
+          side: BorderSide(color: color.withValues(alpha: 0.45)),
+        ),
+        child: InkWell(
+          customBorder: const CircleBorder(),
+          onTap: onPressed,
+          child: Padding(
+            padding: const EdgeInsets.all(9),
+            child: Icon(icon, size: 18, color: color),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final AppState state = context.watch<AppState>();
@@ -715,45 +741,36 @@ class _RosterPageState extends State<RosterPage> {
                               video: m.video,
                             ),
                           ),
-                          const SizedBox(width: 12),
+                          const SizedBox(width: 14),
                           Expanded(
                             child: Wrap(
-                              spacing: 8,
+                              spacing: 10,
                               runSpacing: 8,
+                              crossAxisAlignment: WrapCrossAlignment.center,
                               children: <Widget>[
-                                OutlinedButton.icon(
+                                // 图标按钮 + 悬浮提示：不再写「立绘/视频」这种字样
+                                _mediaIconButton(
+                                  icon: Icons.add_a_photo_outlined,
+                                  tooltip: '更换头像',
+                                  color: AppColors.goldDeep,
                                   onPressed: () => pickAvatar(setLocal),
-                                  icon: const Icon(
-                                    Icons.face_retouching_natural,
-                                    size: 16,
-                                  ),
-                                  label: const Text(
-                                    '更换头像',
-                                    style: TextStyle(fontSize: 12),
-                                  ),
                                 ),
-                                OutlinedButton.icon(
+                                _mediaIconButton(
+                                  icon: Icons.auto_awesome_motion_outlined,
+                                  tooltip: '立绘 / 动态视频',
+                                  color: AppColors.gold,
                                   onPressed: () async {
                                     Navigator.pop(ctx);
                                     await showPortraitDialog(context, m.name);
                                   },
-                                  icon: const Icon(
-                                    Icons.image_outlined,
-                                    size: 16,
-                                  ),
-                                  label: const Text(
-                                    '立绘 / 视频',
-                                    style: TextStyle(fontSize: 12),
-                                  ),
                                 ),
                                 if (avatar != null)
-                                  TextButton(
+                                  _mediaIconButton(
+                                    icon: Icons.hide_image_outlined,
+                                    tooltip: '清除头像',
+                                    color: AppColors.danger,
                                     onPressed: () =>
                                         setLocal(() => avatar = null),
-                                    child: const Text(
-                                      '清除头像',
-                                      style: TextStyle(fontSize: 12),
-                                    ),
                                   ),
                               ],
                             ),

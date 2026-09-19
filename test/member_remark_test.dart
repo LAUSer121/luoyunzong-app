@@ -126,10 +126,10 @@ void main() {
     await tester.tap(find.text('修改'));
     await tester.pumpAndSettle();
 
-    // 弹窗里有显示名输入框 + 更换头像 / 立绘入口。
+    // 弹窗里有显示名输入框 + 头像/立绘的图标按钮（不再写文字标签）。
     expect(find.text('显示名 / 备注（仅管理员可改）'), findsOneWidget);
-    expect(find.text('更换头像'), findsOneWidget);
-    expect(find.text('立绘 / 视频'), findsOneWidget);
+    expect(find.byTooltip('更换头像'), findsOneWidget);
+    expect(find.byTooltip('立绘 / 动态视频'), findsOneWidget);
 
     await tester.enterText(
       find.widgetWithText(TextField, '显示名 / 备注（仅管理员可改）'),

@@ -49,6 +49,15 @@ class MemberAvatar extends StatelessWidget {
                       : AppColors.goldDeep.withValues(alpha: 0.4),
                 ),
                 color: const Color(0x33101A2E),
+                boxShadow: hasPortrait
+                    ? <BoxShadow>[
+                        BoxShadow(
+                          color: AppColors.gold.withValues(alpha: 0.22),
+                          blurRadius: 10,
+                          spreadRadius: -2,
+                        ),
+                      ]
+                    : null,
               ),
               clipBehavior: Clip.antiAlias,
               child: bytes != null
@@ -60,17 +69,42 @@ class MemberAvatar extends StatelessWidget {
                     )
                   : _placeholder(),
             ),
-            if (showMediaBadges && hasVideo)
+            // 右下角用图标标出「有立绘 / 有动态视频」，不再写文字
+            if (showMediaBadges && (hasVideo || hasPortrait))
               Positioned(
-                right: -3,
-                top: -3,
-                child: _dot(Icons.play_arrow_rounded, const Color(0xFF7DB8FF)),
-              ),
-            if (showMediaBadges && hasPortrait)
-              Positioned(
-                left: -3,
-                top: -3,
-                child: _dot(Icons.image_outlined, AppColors.goldDeep),
+                right: 1,
+                bottom: 1,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 3,
+                    vertical: 2,
+                  ),
+                  decoration: BoxDecoration(
+                    color: const Color(0xCC0B1226),
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(
+                      color: AppColors.goldDeep.withValues(alpha: 0.45),
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      if (hasPortrait)
+                        const Icon(
+                          Icons.image_rounded,
+                          size: 11,
+                          color: AppColors.goldDeep,
+                        ),
+                      if (hasPortrait && hasVideo) const SizedBox(width: 2),
+                      if (hasVideo)
+                        const Icon(
+                          Icons.play_circle_fill_rounded,
+                          size: 11,
+                          color: Color(0xFF7DB8FF),
+                        ),
+                    ],
+                  ),
+                ),
               ),
           ],
         ),
@@ -83,17 +117,6 @@ class MemberAvatar extends StatelessWidget {
       '侠',
       style: TextStyle(color: AppColors.goldDeep, fontSize: size * 0.44),
     ),
-  );
-
-  Widget _dot(IconData icon, Color color) => Container(
-    width: 15,
-    height: 15,
-    decoration: BoxDecoration(
-      color: const Color(0xF21B2030),
-      shape: BoxShape.circle,
-      border: Border.all(color: color),
-    ),
-    child: Icon(icon, size: 10, color: color),
   );
 
   static Uint8List? _decode(String? dataUrl) {

@@ -10,12 +10,16 @@ class GlassCard extends StatelessWidget {
     required this.child,
     this.padding = const EdgeInsets.all(18),
     this.ornament = false,
+    this.texture = true,
     super.key,
   });
 
   final Widget child;
   final EdgeInsetsGeometry padding;
   final bool ornament;
+
+  /// 底纹：极淡的云纹/菱格，让大块纯色面板不那么平。
+  final bool texture;
 
   @override
   Widget build(BuildContext context) {
@@ -26,8 +30,8 @@ class GlassCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(16),
         boxShadow: <BoxShadow>[
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.35),
-            blurRadius: 18,
+            color: Colors.black.withValues(alpha: 0.38),
+            blurRadius: 20,
             offset: const Offset(0, 8),
           ),
         ],
@@ -40,15 +44,46 @@ class GlassCard extends StatelessWidget {
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(16),
             border: Border.all(color: AppColors.outline),
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: <Color>[
+                AppColors.goldDeep.withValues(alpha: 0.06),
+                Colors.transparent,
+                AppColors.info.withValues(alpha: 0.03),
+              ],
+            ),
+            boxShadow: <BoxShadow>[
+              // 内发光，做出「玉牌」的厚度感
+              BoxShadow(
+                color: AppColors.goldDeep.withValues(alpha: 0.07),
+                blurRadius: 24,
+                spreadRadius: -12,
+                blurStyle: BlurStyle.inner,
+              ),
+            ],
           ),
           child: Stack(
             children: <Widget>[
+              if (texture)
+                const Positioned.fill(
+                  child: IgnorePointer(
+                    child: CustomPaint(painter: _LatticePainter()),
+                  ),
+                ),
               if (ornament)
                 const Positioned.fill(
                   child: IgnorePointer(
                     child: CustomPaint(painter: _CornerOrnamentPainter()),
                   ),
                 ),
+              // 顶部一道金线，像匾额的边
+              const Positioned(
+                left: 16,
+                right: 16,
+                top: 0,
+                child: IgnorePointer(child: _TopSheen()),
+              ),
               Padding(padding: padding, child: child),
             ],
           ),
@@ -56,6 +91,59 @@ class GlassCard extends StatelessWidget {
       ),
     );
   }
+}
+
+/// 顶部金色渐变细线。
+class _TopSheen extends StatelessWidget {
+  const _TopSheen();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 1.5,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: <Color>[
+            Colors.transparent,
+            AppColors.gold.withValues(alpha: 0.55),
+            AppColors.goldDeep.withValues(alpha: 0.35),
+            Colors.transparent,
+          ],
+          stops: const <double>[0, 0.25, 0.6, 1],
+        ),
+      ),
+    );
+  }
+}
+
+/// 极淡的菱格底纹（约 3% 透明度，几乎不抢内容）。
+class _LatticePainter extends CustomPainter {
+  const _LatticePainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final Paint line = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1
+      ..color = AppColors.gold.withValues(alpha: 0.035);
+    const double step = 26;
+    final Path path = Path();
+    // 斜向菱格
+    for (double x = -size.height; x < size.width; x += step) {
+      path
+        ..moveTo(x, 0)
+        ..lineTo(x + size.height, size.height);
+    }
+    for (double x = 0.0; x < size.width + size.height; x += step) {
+      path
+        ..moveTo(x, 0)
+        ..lineTo(x - size.height, size.height);
+    }
+    canvas.drawPath(path, line);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 /// 分节标题：左侧金色竖条 + 标题文字 + 可选尾部操作。
@@ -73,13 +161,40 @@ class SectionTitle extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          Container(width: 3, height: 18, color: AppColors.goldDeep),
+          // 小菱形印 + 竖条，做出「宗门匾额」的感觉
+          Padding(
+            padding: const EdgeInsets.only(top: 1),
+            child: Text(
+              '◆',
+              style: TextStyle(
+                color: AppColors.goldDeep.withValues(alpha: 0.9),
+                fontSize: 11,
+              ),
+            ),
+          ),
+          const SizedBox(width: 6),
+          Container(
+            width: 3,
+            height: 18,
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: <Color>[AppColors.gold, AppColors.goldDark],
+              ),
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
           const SizedBox(width: 10),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
-                Text(title, style: Theme.of(context).textTheme.titleMedium),
+                Text(
+                  title,
+                  style: Theme.of(context).textTheme.titleMedium
+                      ?.copyWith(color: AppColors.gold, letterSpacing: 1.2),
+                ),
                 if (subtitle != null)
                   Padding(
                     padding: const EdgeInsets.only(top: 2),
@@ -88,6 +203,7 @@ class SectionTitle extends StatelessWidget {
                       style: const TextStyle(
                         color: AppColors.textFaint,
                         fontSize: 12,
+                        height: 1.6,
                       ),
                     ),
                   ),
