@@ -289,6 +289,71 @@ export async function removeLocalAsset({ id, mime }) {
 }
 
 /**
+ * SigV4 **查询串签名**（预签名 URL）：客户端拿这个 URL 直接上传/下载，
+ * 字节不经过本服务 —— 这对 Vercel 这类有请求体上限（4.5MB）的托管是关键。
+ *   上传：客户端 PUT 到 uploadUrl（headers 必须带 x-amz-content-sha256: UNSIGNED-PAYLOAD）
+ *   下载：客户端直接 GET downloadUrl（私有桶也能读，有效期 expires 秒）
+ */
+export function presignS3({ id, mime, method = 'GET', expires = 3600, key }) {
+  const endpoint = (current.endpoint || '').replace(/\/+$/, '');
+  const bucket = current.bucket;
+  const region = current.region || 'cn-east-1';
+  const accessKey = current.accessKey;
+  const secretKey = current.secretKey;
+  if (!endpoint || !bucket || !accessKey || !secretKey) {
+    throw new Error('对象存储配置不完整：需要 Endpoint / 桶名 / AccessKey / SecretKey');
+  }
+  const objectKey = key || keyOf(id, mime);
+  const host = new URL(endpoint).host;
+  const amzDate = new Date().toISOString().replace(/[:-]|\.\d{3}/g, '');
+  const dateStamp = amzDate.slice(0, 8);
+  const scope = `${dateStamp}/${region}/s3/aws4_request`;
+  // 预签名 URL 的载荷哈希一律用 UNSIGNED-PAYLOAD：
+  // 客户端事先不知道（也不会去算）哈希，缤纷云/R2 这类兼容实现都认这个值。
+  const payloadHash = 'UNSIGNED-PAYLOAD';
+
+  const query = {
+    'X-Amz-Algorithm': 'AWS4-HMAC-SHA256',
+    'X-Amz-Credential': `${accessKey}/${scope}`,
+    'X-Amz-Date': amzDate,
+    'X-Amz-Expires': String(Math.min(Math.max(expires, 60), 604800)),
+    'X-Amz-SignedHeaders': 'host',
+  };
+  const canonicalQuery = Object.keys(query)
+    .sort()
+    .map((k) => `${encodeURIComponent(k)}=${encodeURIComponent(query[k])}`)
+    .join('&');
+  const canonicalHeaders = `host:${host}\n`;
+  const canonicalRequest = `${method}\n/${bucket}/${objectKey}\n${canonicalQuery}\n${canonicalHeaders}\nhost\n${payloadHash}`;
+  const stringToSign = `AWS4-HMAC-SHA256\n${amzDate}\n${scope}\n${crypto
+    .createHash('sha256')
+    .update(canonicalRequest)
+    .digest('hex')}`;
+  const hmac = (k, d) => crypto.createHmac('sha256', k).update(d).digest();
+  const signingKey = hmac(
+    hmac(hmac(hmac(`AWS4${secretKey}`, dateStamp), region), 's3'),
+    'aws4_request',
+  );
+  const signature = crypto
+    .createHmac('sha256', signingKey)
+    .update(stringToSign)
+    .digest('hex');
+
+  return `${endpoint}/${bucket}/${objectKey}?${canonicalQuery}&X-Amz-Signature=${signature}`;
+}
+
+/** 资源在浏览器/客户端能直接用的地址（没配公开域名时回空，由本服务中转）。 */
+export const publicUrlFor = (id, mime) =>
+  current.publicBase ? `${current.publicBase}/${keyOf(id, mime)}` : '';
+
+/** 直接把某个对象删掉（替换资源 / 重置时用）。 */
+export async function deleteObject({ id, mime }) {
+  if (current.driver === 's3') await deleteS3({ id, mime });
+  else if (current.driver === 'upyun') await deleteUpyun({ id, mime });
+  else await removeLocalAsset({ id, mime });
+}
+
+/**
  * 上传/回读/删除一个探针对象，用来在 App 里「测试连接」。
  * 返回 { ok, message }，失败时把对象存储的原话带回去（例如权限不足的 AccessDenied）。
  */

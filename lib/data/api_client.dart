@@ -239,11 +239,54 @@ class ApiClient {
   // ------------------------------------------------------------------
 
   /// 上传一个资源；服务端按 id 去重。
+  ///
+  /// 优先走「预签名直传」：服务端只签名，字节由客户端**直接进对象存储**——
+  /// 这样大视频不受 serverless 的 4.5MB 请求体上限影响，也不占服务端带宽。
+  /// 服务端不支持直传时（本地磁盘 / 又拍云 / 老版本）自动回落到老接口。
   Future<String> uploadAsset({
     required String id,
     required List<int> bytes,
     String mime = 'application/octet-stream',
   }) async {
+    final Map<String, Object?>? signed = await _signUpload(
+      id: id,
+      mime: mime,
+      size: bytes.length,
+    );
+    if (signed != null) {
+      final String uploadUrl = '${signed['uploadUrl'] ?? ''}';
+      if (uploadUrl.isNotEmpty) {
+        final Map<String, String> headers = <String, String>{};
+        final Object? raw = signed['headers'];
+        if (raw is Map) {
+          for (final MapEntry<Object?, Object?> e in raw.entries) {
+            headers['${e.key}'] = '${e.value}';
+          }
+        }
+        final http.Response put = await _client
+            .put(Uri.parse(uploadUrl), headers: headers, body: bytes)
+            .timeout(const Duration(minutes: 5));
+        if (put.statusCode < 200 || put.statusCode >= 300) {
+          throw ApiException(
+            put.statusCode,
+            '直传对象存储失败：${utf8.decode(put.bodyBytes, allowMalformed: true)}',
+          );
+        }
+        // 直传成功后登记到数据库（资源 id → 存储位置）
+        await _send(
+          () => _client.post(
+            _uri('/api/assets/commit', <String, String>{
+              'id': id,
+              'mime': mime,
+              'size': '${bytes.length}',
+            }),
+            headers: _headers,
+          ),
+        );
+        return id;
+      }
+    }
+    // 回落：老接口（body 直接传字节）
     final Object? data = await _send(
       () => _client.post(
         _uri('/api/assets', <String, String>{'id': id, 'mime': mime}),
@@ -258,7 +301,75 @@ class ApiClient {
     return id;
   }
 
+  /// 问服务端要一个上传用的预签名 URL；不支持直传时返回 null。
+  Future<Map<String, Object?>?> _signUpload({
+    required String id,
+    required String mime,
+    required int size,
+  }) async {
+    try {
+      final Object? data = await _send(
+        () => _client
+            .post(
+              _uri('/api/assets/sign', <String, String>{
+                'id': id,
+                'mime': mime,
+                'size': '$size',
+              }),
+              headers: _headers,
+            )
+            .timeout(const Duration(seconds: 20)),
+      );
+      if (data is Map && data['direct'] == true) {
+        return data.cast<String, Object?>();
+      }
+    } catch (_) {
+      // 404（老服务端）或网络问题 → 回落老接口
+    }
+    return null;
+  }
+
+  /// 批量拿到资源的**可下载地址**（对象存储给预签名 GET；本地磁盘给本服务直链）。
+  ///
+  /// 比 `fetchAssets` 更省：不把 base64 塞进一个大 JSON，大视频也不会超时。
+  Future<Map<String, String>> fetchAssetLinks(Iterable<String> ids) async {
+    final List<String> list = ids.toList();
+    if (list.isEmpty) return <String, String>{};
+    final Object? data = await _send(
+      () => _client
+          .get(
+            _uri('/api/assets/links', <String, String>{'ids': list.join(',')}),
+            headers: _headers,
+          )
+          .timeout(const Duration(seconds: 30)),
+    );
+    final Map<String, String> out = <String, String>{};
+    if (data is Map) {
+      for (final MapEntry<Object?, Object?> e in data.entries) {
+        final String u = '${e.value}';
+        if (u.isEmpty) continue;
+        // 相对路径（本地驱动）补成绝对地址
+        out['${e.key}'] = u.startsWith('http') ? u : '$baseUrl$u';
+      }
+    }
+    return out;
+  }
+
+  /// 按链接把字节下回来（给 [fetchAssetLinks] 用）。
+  Future<Uint8List?> downloadBytes(String url) async {
+    try {
+      final http.Response res = await _client
+          .get(Uri.parse(url))
+          .timeout(const Duration(minutes: 5));
+      if (res.statusCode < 200 || res.statusCode >= 300) return null;
+      return res.bodyBytes;
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// 批量拉取资源（返回 id → 字节）；缺失的 id 不会出现在结果里。
+  /// 老接口，保留作兜底。
   Future<Map<String, Uint8List>> fetchAssets(Iterable<String> ids) async {
     final List<String> list = ids.toList();
     if (list.isEmpty) return <String, Uint8List>{};

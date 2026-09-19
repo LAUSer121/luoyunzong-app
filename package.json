@@ -1,0 +1,16 @@
+{
+  "name": "luoyunzong-app",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "落云宗 · 宗门管理（Flutter 多端 + Vercel 托管的云同步接口）",
+  "//": "根 package.json 只为 Vercel 部署准备：它会把这里的依赖装进 serverless 函数。本地开发/自建服务器依旧用 server/package.json。",
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "express": "^4.21.2",
+    "mysql2": "^3.11.5"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

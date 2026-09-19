@@ -16,6 +16,8 @@ import {
   reloadLimits,
   currentLimits,
   removeLocalAsset,
+  presignS3,
+  publicUrlFor,
 } from './storage.mjs';
 
 const app = express();
@@ -61,6 +63,9 @@ function auth(req, res, next) {
   if (token !== TOKEN) return res.status(401).json({ error: 'unauthorized' });
   next();
 }
+
+const MIME_EXT = {'image/jpeg':'jpg','image/png':'png','image/webp':'webp','image/gif':'gif','video/mp4':'mp4','video/webm':'webm','video/quicktime':'mov'};
+const extOfMime = (mime) => MIME_EXT[mime] || 'bin';
 
 const asyncRoute = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
@@ -307,6 +312,106 @@ app.get(
   }),
 );
 
+// ---------------------------------------------------------------------------
+// 直传（预签名）：服务端只签名，字节由客户端直接进对象存储。
+// Vercel/Serverless 上有 4.5MB 请求体上限，大视频必须走这条。
+//   POST /api/assets/sign    ?id=&mime=&size=  → { uploadUrl, headers, driver }
+//   POST /api/assets/commit  ?id=&mime=&size=  → 登记到数据库（去重）
+//   GET  /api/assets/links   ?ids=a,b,c        → { id: 可直接下载的 url }
+// ---------------------------------------------------------------------------
+app.post(
+  '/api/assets/sign',
+  auth,
+  asyncRoute(async (req, res) => {
+    const id = String(req.query.id || '').trim();
+    const mime = String(req.query.mime || 'application/octet-stream');
+    const size = Number(req.query.size || 0);
+    if (!id) return res.status(400).json({ error: 'id is required' });
+    const limit = maxBytesForMime(mime);
+    if (size > limit) {
+      const mb = (limit / 1024 / 1024).toFixed(0);
+      return res.status(413).json({
+        error:
+          `文件 ${(size / 1024 / 1024).toFixed(1)}MB 超过当前上限 ${mb}MB；` +
+          `管理员可在「设置 → 云端资源存储 → 上传上限」里调大`,
+      });
+    }
+    if (storageInfo().driver !== 's3') {
+      // 非对象存储：直接告诉客户端走老接口（本地磁盘/又拍云没有预签名）
+      return res.json({ direct: false, driver: storageInfo().driver });
+    }
+    const uploadUrl = presignS3({ id, mime, method: 'PUT', expires: 3600 });
+    // 私有桶 + 没配公开域名时，回读由 links 接口给预签名 GET
+    const url = publicUrlFor(id, mime);
+    return res.json({
+      direct: true,
+      driver: 's3',
+      uploadUrl,
+      url,
+      // 必须原样带上这两个头，签名才对得上
+      headers: { 'Content-Type': mime, 'x-amz-content-sha256': 'UNSIGNED-PAYLOAD' },
+      expiresIn: 3600,
+    });
+  }),
+);
+
+app.post(
+  '/api/assets/commit',
+  auth,
+  asyncRoute(async (req, res) => {
+    const id = String(req.query.id || '').trim();
+    const mime = String(req.query.mime || 'application/octet-stream');
+    const size = Number(req.query.size || 0);
+    if (!id) return res.status(400).json({ error: 'id is required' });
+    const driver = storageInfo().driver;
+    const url = publicUrlFor(id, mime);
+    await pool.query(
+      `INSERT INTO assets (org_id, id, mime, byte_size, bytes, url, driver)
+       VALUES (?, ?, ?, ?, NULL, ?, ?)
+       ON DUPLICATE KEY UPDATE byte_size = VALUES(byte_size), url = VALUES(url), driver = VALUES(driver)`,
+      [ORG_ID, id, mime, size, url || null, driver],
+    );
+    res.json({ ok: true, id, url, driver });
+  }),
+);
+
+app.get(
+  '/api/assets/links',
+  auth,
+  asyncRoute(async (req, res) => {
+    const ids = String(req.query.ids || '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .slice(0, 300);
+    if (!ids.length) return res.json({});
+    const [rows] = await pool.query(
+      `SELECT id, mime, url FROM assets
+        WHERE org_id = ? AND id IN (${ids.map(() => '?').join(',')})`,
+      [ORG_ID, ...ids],
+    );
+    const driver = storageInfo().driver;
+    const out = {};
+    for (const row of rows) {
+      if (row.url) {
+        out[row.id] = row.url;
+      } else if (driver === 's3') {
+        // 私有桶：给一个有效期 2 小时的预签名 GET
+        out[row.id] = presignS3({
+          id: row.id,
+          mime: row.mime,
+          method: 'GET',
+          expires: 7200,
+        });
+      } else {
+        // 本地磁盘：由本服务 /assets/<id>.<ext> 提供
+        out[row.id] = `/assets/${row.id}.${extOfMime(row.mime)}`;
+      }
+    }
+    res.json(out);
+  }),
+);
+
 // 本地驱动：直接把文件回源（对象存储则客户端直接用 url，不走这里）
 app.get(
   '/assets/:name',
@@ -333,15 +438,32 @@ app.use((err, _req, res, _next) => {
   res.status(500).json({ error: err.message });
 });
 
-app.listen(PORT, () => {
-  const s = storageInfo();
-  console.log(`[api] 落云宗服务端已启动: http://127.0.0.1:${PORT}`);
-  console.log(`[api] 归档库: ${process.env.DB_HOST}:${process.env.DB_PORT}/${process.env.DB_NAME} org=${ORG_ID}`);
-  console.log(
-    `[api] 资源存储: ${s.driver}${s.bucket ? ` (${s.bucket})` : ''}` +
-      `${s.fromDatabase ? ' [数据库里配置的]' : ' [来自 .env]'}`,
+/** 启动前把数据库里的配置读进来（存储驱动 / 上传上限）。 */
+export async function warmup() {
+  await reloadStorageConfig().catch((e) =>
+    console.error('[api] 读取存储配置失败:', e.message),
   );
-  // 启动时把管理员在 App 里保存的对象存储配置读进来
-  reloadStorageConfig().catch((e) => console.error('[api] 读取存储配置失败:', e.message));
-  reloadLimits().catch((e) => console.error('[api] 读取上传上限失败:', e.message));
-});
+  await reloadLimits().catch((e) =>
+    console.error('[api] 读取上传上限失败:', e.message),
+  );
+}
+
+export { app };
+export default app;
+
+// 直接 `node index.mjs` 跑时才监听端口；Vercel 之类由平台把 app 当 handler 用。
+const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
+if (!isServerless) {
+  warmup().catch(() => {});
+  app.listen(PORT, () => {
+    const s = storageInfo();
+    console.log(`[api] 落云宗服务端已启动: http://127.0.0.1:${PORT}`);
+    console.log(
+      `[api] 归档库: ${process.env.DB_HOST}:${process.env.DB_PORT}/${process.env.DB_NAME} org=${ORG_ID}`,
+    );
+    console.log(
+      `[api] 资源存储: ${s.driver}${s.bucket ? ` (${s.bucket})` : ''}` +
+        `${s.fromDatabase ? ' [数据库里配置的]' : ' [来自 .env]'}`,
+    );
+  });
+}

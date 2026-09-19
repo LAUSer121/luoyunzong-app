@@ -59,10 +59,49 @@ class ApiRepository implements LuoyunRepository {
   }
 
   /// 把存档里的大资源（`asset:<id>` 引用）还原成内嵌 data URL。
+  ///
+  /// 优先「批量取链接 + 直接下载」：对象存储回的是预签名地址，字节从缤纷云直接下来，
+  /// 不经过服务端（serverless 上大视频走老接口会超时/超限）；失败再回落老的 base64 接口。
   Future<Archive> restoreAssetsOf(Archive remote) async {
     final Set<String> ids = referencedAssetIds(remote);
     if (ids.isEmpty) return remote;
-    final Map<String, Uint8List> assets = await client.fetchAssets(ids);
+    Map<String, Uint8List> assets = <String, Uint8List>{};
+    try {
+      final Map<String, String> links = await client.fetchAssetLinks(ids);
+      final List<MapEntry<String, String>> entries = links.entries.toList();
+      const int batch = 4; // 并发下载，最多 4 个一起
+      for (int i = 0; i < entries.length; i += batch) {
+        final List<MapEntry<String, String>> slice = entries.sublist(
+          i,
+          (i + batch).clamp(0, entries.length),
+        );
+        final List<Uint8List?> got = await Future.wait(
+          slice.map(
+            (MapEntry<String, String> e) => client.downloadBytes(e.value),
+          ),
+        );
+        for (int j = 0; j < slice.length; j++) {
+          final Uint8List? bytes = got[j];
+          if (bytes != null && bytes.isNotEmpty) {
+            assets[slice[j].key] = bytes;
+          }
+        }
+      }
+    } catch (_) {
+      assets = <String, Uint8List>{};
+    }
+
+    final Set<String> missing = ids
+        .where((String id) => !assets.containsKey(id))
+        .toSet();
+    if (missing.isNotEmpty) {
+      // 兜底：老接口（base64 一次取回）
+      try {
+        assets.addAll(await client.fetchAssets(missing));
+      } catch (_) {
+        // 拿不到就保持引用，界面显示占位符
+      }
+    }
     return restoreAssets(remote, assets);
   }
 
