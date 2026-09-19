@@ -104,6 +104,8 @@ Future<SyncManager> attachSync(
     persistLastSyncAt: settings.setLastSyncAt,
   );
   state.sync = sync;
+  // 设置页里的管理员操作（对象存储配置等）复用同一个客户端。
+  state.cloudClient = cloud?.client;
   state.restoreLocalChangeAt(await settings.lastLocalChangeAt());
   sync.restore(
     autoSync: await settings.autoSync(),

@@ -8,6 +8,7 @@ import 'package:flutter/foundation.dart';
 import '../core/constants.dart';
 import '../core/image_utils.dart';
 import '../core/parsers.dart';
+import '../data/api_client.dart';
 import '../data/archive_codec.dart';
 import '../data/local_repository.dart';
 import '../data/netease_client.dart';
@@ -33,6 +34,9 @@ class AppState extends ChangeNotifier {
 
   /// 云同步引擎（由 main 装配；未配置云端时为 null）。
   SyncManager? sync;
+
+  /// 云端 API 客户端（设置页里「资源存储」等管理员操作要用；纯本地时为 null）。
+  ApiClient? cloudClient;
 
   /// 本机最后一次「真正改动内容」的时间，用于判断云端与我这边谁更新。
   DateTime? _lastLocalChangeAt;

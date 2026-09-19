@@ -119,6 +119,50 @@ class ApiClient {
     );
   }
 
+  // ------------------------------------------------------------------
+  // 对象存储配置（管理员在设置页改；存在服务端 MySQL 里）
+  // ---------------------------------------------------------------------------
+
+  /// 读取服务端当前的资源存储配置（密钥只回「有没有设置」，不回明文）。
+  Future<Map<String, Object?>> fetchStorageConfig() async {
+    final Object? data = await _send(
+      () => _client.get(_uri('/api/storage'), headers: _headers),
+    );
+    return data is Map ? data.cast<String, Object?>() : <String, Object?>{};
+  }
+
+  /// 保存资源存储配置；[secretKey] 传空字符串表示「保持原来那把密钥」。
+  Future<Map<String, Object?>> saveStorageConfig(
+    Map<String, Object?> config,
+  ) async {
+    final Object? data = await _send(
+      () => _client.put(
+        _uri('/api/storage'),
+        headers: _headers,
+        body: jsonEncode(config),
+      ),
+    );
+    return data is Map ? data.cast<String, Object?>() : <String, Object?>{};
+  }
+
+  /// 让服务端实测一次「上传 → 回读」，返回 { ok, message }。
+  Future<({bool ok, String message})> testStorage() async {
+    try {
+      final Object? data = await _send(
+        () => _client.post(_uri('/api/storage/test'), headers: _headers),
+      );
+      final Map<String, Object?> map = data is Map
+          ? data.cast<String, Object?>()
+          : <String, Object?>{};
+      return (
+        ok: map['ok'] == true,
+        message: '${map['message'] ?? (map['ok'] == true ? '测试通过' : '测试失败')}',
+      );
+    } catch (e) {
+      return (ok: false, message: '请求失败：$e');
+    }
+  }
+
   Future<void> deleteArchive() async {
     await _send(() => _client.delete(_uri('/api/archive'), headers: _headers));
   }

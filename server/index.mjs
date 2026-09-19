@@ -7,6 +7,12 @@ import crypto from 'node:crypto';
 import express from 'express';
 import { pool, ORG_ID } from './db.mjs';
 import { putAsset, getAsset, storageInfo } from './storage.mjs';
+import {
+  publicStorageConfig,
+  saveStorageConfig,
+  reloadStorageConfig,
+  testStorage,
+} from './storage.mjs';
 
 const app = express();
 const PORT = Number(process.env.PORT || 8080);
@@ -61,12 +67,48 @@ app.get(
   '/api/health',
   asyncRoute(async (_req, res) => {
     const [rows] = await pool.query('SELECT NOW() AS now, VERSION() AS version');
+    // 健康检查是公开接口：只回存储类型，不回桶名/域名等细节
     res.json({
       ok: true,
       db: { ok: true, version: rows[0].version, now: rows[0].now },
-      storage: storageInfo(),
+      storage: { driver: storageInfo().driver },
       org: ORG_ID,
     });
+  }),
+);
+
+// ---------------------------------------------------------------------------
+// 对象存储配置（缤纷云 / 又拍云 / S3）
+//   管理员在 App 里改 → 存到 MySQL 的 app_settings → 之后上传的资源直接进对象存储。
+//   密钥只在服务端保存，GET 只回「有没有设置」，不回明文。
+// ---------------------------------------------------------------------------
+app.get(
+  '/api/storage',
+  auth,
+  asyncRoute(async (_req, res) => {
+    res.json(publicStorageConfig());
+  }),
+);
+
+app.put(
+  '/api/storage',
+  auth,
+  asyncRoute(async (req, res) => {
+    try {
+      const saved = await saveStorageConfig(req.body || {});
+      res.json({ ok: true, config: saved });
+    } catch (e) {
+      res.status(400).json({ error: e.message });
+    }
+  }),
+);
+
+app.post(
+  '/api/storage/test',
+  auth,
+  asyncRoute(async (_req, res) => {
+    const result = await testStorage();
+    res.json(result);
   }),
 );
 
@@ -247,5 +289,10 @@ app.listen(PORT, () => {
   const s = storageInfo();
   console.log(`[api] 落云宗服务端已启动: http://127.0.0.1:${PORT}`);
   console.log(`[api] 归档库: ${process.env.DB_HOST}:${process.env.DB_PORT}/${process.env.DB_NAME} org=${ORG_ID}`);
-  console.log(`[api] 资源存储: ${s.driver}${s.bucket ? ` (${s.bucket})` : ''}`);
+  console.log(
+    `[api] 资源存储: ${s.driver}${s.bucket ? ` (${s.bucket})` : ''}` +
+      `${s.fromDatabase ? ' [数据库里配置的]' : ' [来自 .env]'}`,
+  );
+  // 启动时把管理员在 App 里保存的对象存储配置读进来
+  reloadStorageConfig().catch((e) => console.error('[api] 读取存储配置失败:', e.message));
 });

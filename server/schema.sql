@@ -52,3 +52,13 @@ CREATE TABLE IF NOT EXISTS audit_logs (
   PRIMARY KEY (id),
   KEY idx_org_time (org_id, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 服务端运行配置（管理员在 App 里改，存这里；例如对象存储的缤纷云密钥）
+-- 注意：这些值不进存档、不随云同步回客户端，只在服务端使用。
+CREATE TABLE IF NOT EXISTS app_settings (
+  org_id     VARCHAR(64) NOT NULL DEFAULT 'default',
+  skey       VARCHAR(64) NOT NULL COMMENT '配置名，例如 storage',
+  svalue     TEXT        NULL COMMENT 'JSON 文本',
+  updated_at DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (org_id, skey)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

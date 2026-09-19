@@ -79,16 +79,39 @@ npm run inspect           # 查看云端数据概览；加 --clean 清理测试�
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| GET | `/api/health` | 健康检查（App 设置页「测试连接」调它） |
+| GET | `/api/health` | 健康检查（App 设置页「测试连接」调它；只回存储类型，不回桶名/域名） |
 | POST | `/api/auth/verify` | 校验管理员密码（优先 `admins` 表，回落存档里的密码） |
 | GET | `/api/archive` | 读取整包存档 |
 | PUT | `/api/archive` | 覆盖写入存档（revision +1） |
 | DELETE | `/api/archive` | 清空存档 |
+| GET | `/api/storage` | 读对象存储配置（**密钥只回「有没有设置」**，不回明文） |
+| PUT | `/api/storage` | 保存对象存储配置（写进 MySQL `app_settings`；密钥留空＝不修改） |
+| POST | `/api/storage/test` | 实测一次「上传 → 回读 → 清理」，失败会把对象存储的原话带回来 |
 | POST | `/api/assets?id=&mime=` | 上传资源（body 为二进制，按 id 去重） |
 | GET | `/api/assets/batch?ids=a,b,c` | 批量取回资源（base64） |
-| GET | `/assets/<id>.<ext>` | `local` 驱动时的直链（对象存储则 302 到 URL） |
+| GET | `/assets/<id>.<ext>` | 资源直链（对象存储且没配公开域名时，由服务端签名回源中转） |
 
 鉴权：`Authorization: Bearer <API_TOKEN>`（`/api/health` 与 `/assets/*` 不需要）。
+
+## 二之二、在 App 里配对象存储（推荐）
+
+解锁管理员后，App「设置 → 云端资源存储」可以直接改，保存即写入 MySQL（`app_settings` 表），
+之后新上传的头像/立绘/背景/视频就进对象存储；**密钥只存在服务端，App 里永远不回明文**。
+
+缤纷云（Bitiful S4）填法：
+
+| 字段 | 值 |
+| --- | --- |
+| 存储位置 | 缤纷云 / S3 兼容对象存储 |
+| Endpoint | `https://s3.bitiful.net`（以控制台 Bucket 设置页显示的为准） |
+| Region | `cn-east-1` |
+| 桶名 | 你在缤纷云建的桶，例如 `my-media` |
+| Access Key / Secret Key | 控制台 →「子账户&Key」里子用户的 Key |
+| 公开域名 | 有自定义域名/CDN 就填；留空则由服务端中转（私有桶推荐留空） |
+
+> **必须给子用户授权**：缤纷云创建子账户时默认没有桶权限，不授权上传会报
+> `403 AccessDenied`。到控制台「子账户&Key」→ 选中子用户 → 给它勾上该桶的读写权限即可。
+> 改完在 App 里点「测试连接」验证，或跑 `npm run storage:check`。
 
 ## 三、部署到服务器
 

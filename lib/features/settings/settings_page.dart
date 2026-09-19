@@ -45,6 +45,129 @@ class _SettingsPageState extends State<SettingsPage> {
   bool _loadedSettings = false;
   bool _defaultTrackSeeded = false;
 
+  // ---- 云端资源存储（管理员）----
+  final TextEditingController _storageEndpoint = TextEditingController();
+  final TextEditingController _storageRegion = TextEditingController();
+  final TextEditingController _storageBucket = TextEditingController();
+  final TextEditingController _storageAccessKey = TextEditingController();
+  final TextEditingController _storageSecretKey = TextEditingController();
+  final TextEditingController _storagePublicBase = TextEditingController();
+  final TextEditingController _storageOperator = TextEditingController();
+  String _storageDriver = 'local';
+  bool _storageSecretSet = false;
+  bool _storageLoaded = false;
+  bool _storageLoading = false;
+  bool _storageBusy = false;
+  bool? _storageStatusOk;
+  String? _storageStatus;
+
+  Future<void> _loadStorageConfig() async {
+    final AppState? state = mounted ? context.read<AppState>() : null;
+    final ApiClient? client = state?.cloudClient;
+    if (client == null) {
+      if (mounted) setState(() => _storageLoaded = true);
+      return;
+    }
+    try {
+      final Map<String, Object?> cfg = await client.fetchStorageConfig();
+      if (!mounted) return;
+      setState(() {
+        _storageDriver = '${cfg['driver'] ?? 'local'}';
+        _storageEndpoint.text = '${cfg['endpoint'] ?? ''}';
+        _storageRegion.text = '${cfg['region'] ?? ''}';
+        _storageBucket.text = '${cfg['bucket'] ?? ''}';
+        _storageAccessKey.text = '${cfg['accessKey'] ?? ''}';
+        _storagePublicBase.text = '${cfg['publicBase'] ?? ''}';
+        _storageOperator.text = '${cfg['upyunOperator'] ?? ''}';
+        _storageSecretSet =
+            cfg['secretKeySet'] == true || cfg['upyunPasswordSet'] == true;
+        _storageLoaded = true;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _storageLoaded = true;
+        _storageStatusOk = false;
+        _storageStatus = '读取服务端配置失败：$e';
+      });
+    }
+  }
+
+  /// 组装当前表单内容；密钥留空时不下发（服务端保持原值）。
+  Map<String, Object?> _storagePayload() {
+    final String secret = _storageSecretKey.text.trim();
+    if (_storageDriver == 's3') {
+      return <String, Object?>{
+        'driver': 's3',
+        'endpoint': _storageEndpoint.text.trim(),
+        'region': _storageRegion.text.trim(),
+        'bucket': _storageBucket.text.trim(),
+        'accessKey': _storageAccessKey.text.trim(),
+        'publicBase': _storagePublicBase.text.trim(),
+        if (secret.isNotEmpty) 'secretKey': secret,
+      };
+    }
+    if (_storageDriver == 'upyun') {
+      return <String, Object?>{
+        'driver': 'upyun',
+        'bucket': _storageBucket.text.trim(),
+        'upyunOperator': _storageOperator.text.trim(),
+        'publicBase': _storagePublicBase.text.trim(),
+        if (secret.isNotEmpty) 'upyunPassword': secret,
+      };
+    }
+    return <String, Object?>{'driver': 'local'};
+  }
+
+  Future<void> _saveStorageConfig(AppState state) async {
+    final ApiClient? client = state.cloudClient;
+    if (client == null) return;
+    setState(() {
+      _storageBusy = true;
+      _storageStatus = null;
+    });
+    try {
+      final Map<String, Object?> saved = await client.saveStorageConfig(
+        _storagePayload(),
+      );
+      if (!mounted) return;
+      setState(() {
+        _storageBusy = false;
+        _storageStatusOk = true;
+        _storageSecretSet =
+            saved['secretKeySet'] == true || saved['upyunPasswordSet'] == true;
+        _storageSecretKey.clear();
+        _storageStatus =
+            '已保存到服务器：${saved['driver']}'
+            '${(saved['bucket'] ?? '') == '' ? '' : ' · ${saved['bucket']}'}'
+            '（之后新上传的资源就进这里；已存在的资源位置不变）';
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _storageBusy = false;
+        _storageStatusOk = false;
+        _storageStatus = '保存失败：$e';
+      });
+    }
+  }
+
+  Future<void> _testStorageConfig(AppState state) async {
+    final ApiClient? client = state.cloudClient;
+    if (client == null) return;
+    setState(() {
+      _storageBusy = true;
+      _storageStatus = null;
+    });
+    final ({bool ok, String message}) r = await client.testStorage();
+    if (!mounted) return;
+    setState(() {
+      _storageBusy = false;
+      _storageStatusOk = r.ok;
+      _storageStatus = r.message;
+    });
+  }
+
   @override
   void initState() {
     super.initState();
@@ -72,6 +195,13 @@ class _SettingsPageState extends State<SettingsPage> {
     _apiToken.dispose();
     _neteaseController.dispose();
     _defaultTrackController.dispose();
+    _storageEndpoint.dispose();
+    _storageRegion.dispose();
+    _storageBucket.dispose();
+    _storageAccessKey.dispose();
+    _storageSecretKey.dispose();
+    _storagePublicBase.dispose();
+    _storageOperator.dispose();
     super.dispose();
   }
 
@@ -142,10 +272,223 @@ class _SettingsPageState extends State<SettingsPage> {
         _archiveCard(state, unlocked),
         const SizedBox(height: 16),
         _syncCard(state),
+        _cloudStorageCard(state),
         _dataSourceCard(state),
         const SizedBox(height: 16),
         _aboutCard(state),
       ],
+    );
+  }
+
+  /// 云端资源存储（缤纷云 / 又拍云 / S3）——**只有管理员解锁后才显示**。
+  ///
+  /// 配置存在服务端 MySQL 的 app_settings 里；保存后新上传的头像/立绘/背景/视频
+  /// 就直接进对象存储，数据库只留索引。密钥只存服务端，界面永远不回明文。
+  Widget _cloudStorageCard(AppState state) {
+    final ApiClient? client = state.cloudClient;
+    if (client == null || !state.unlocked) return const SizedBox.shrink();
+
+    if (!_storageLoaded && !_storageLoading) {
+      _storageLoading = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) => _loadStorageConfig());
+    }
+
+    final bool s3 = _storageDriver == 's3';
+    final bool upyun = _storageDriver == 'upyun';
+    return GlassCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          const SectionTitle(
+            '云端资源存储',
+            subtitle: '头像 / 立绘 / 背景 / 视频放这里；保存后写入服务端 MySQL，新上传立刻生效',
+          ),
+          if (!_storageLoaded)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 12),
+              child: Row(
+                children: <Widget>[
+                  SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                  SizedBox(width: 10),
+                  Text('正在读取服务端配置…', style: TextStyle(fontSize: 13)),
+                ],
+              ),
+            )
+          else ...<Widget>[
+            DropdownButtonFormField<String>(
+              initialValue: _storageDriver,
+              decoration: const InputDecoration(labelText: '存储位置'),
+              items: const <DropdownMenuItem<String>>[
+                DropdownMenuItem<String>(
+                  value: 'local',
+                  child: Text('服务端本地磁盘'),
+                ),
+                DropdownMenuItem<String>(
+                  value: 's3',
+                  child: Text('缤纷云 / S3 兼容对象存储'),
+                ),
+                DropdownMenuItem<String>(value: 'upyun', child: Text('又拍云')),
+              ],
+              onChanged: (String? v) =>
+                  setState(() => _storageDriver = v ?? _storageDriver),
+            ),
+            const SizedBox(height: 12),
+            if (s3) ...<Widget>[
+              Row(
+                children: <Widget>[
+                  Expanded(
+                    child: TextField(
+                      controller: _storageEndpoint,
+                      decoration: const InputDecoration(
+                        labelText: 'Endpoint',
+                        hintText: 'https://s3.bitiful.net',
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  SizedBox(
+                    width: 160,
+                    child: TextField(
+                      controller: _storageRegion,
+                      decoration: const InputDecoration(
+                        labelText: 'Region',
+                        hintText: 'cn-east-1',
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: <Widget>[
+                  Expanded(
+                    child: TextField(
+                      controller: _storageBucket,
+                      decoration: const InputDecoration(labelText: '桶名 Bucket'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: TextField(
+                      controller: _storagePublicBase,
+                      decoration: const InputDecoration(
+                        labelText: '公开域名（可选）',
+                        hintText: '留空＝由服务端中转',
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: <Widget>[
+                  Expanded(
+                    child: TextField(
+                      controller: _storageAccessKey,
+                      decoration: const InputDecoration(
+                        labelText: 'Access Key',
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: TextField(
+                      controller: _storageSecretKey,
+                      obscureText: true,
+                      decoration: InputDecoration(
+                        labelText: 'Secret Key',
+                        hintText: _storageSecretSet ? '已保存，留空＝不修改' : '必填',
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+            if (upyun) ...<Widget>[
+              Row(
+                children: <Widget>[
+                  Expanded(
+                    child: TextField(
+                      controller: _storageBucket,
+                      decoration: const InputDecoration(
+                        labelText: '服务名 Bucket',
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: TextField(
+                      controller: _storageOperator,
+                      decoration: const InputDecoration(labelText: '操作员'),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _storageSecretKey,
+                obscureText: true,
+                decoration: InputDecoration(
+                  labelText: '操作员密码',
+                  hintText: _storageSecretSet ? '已保存，留空＝不修改' : '必填',
+                ),
+              ),
+            ],
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              children: <Widget>[
+                FilledButton.icon(
+                  onPressed: _storageBusy
+                      ? null
+                      : () => _saveStorageConfig(state),
+                  icon: const Icon(Icons.save_outlined, size: 18),
+                  label: Text(_storageBusy ? '处理中…' : '保存到服务器'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: _storageBusy
+                      ? null
+                      : () => _testStorageConfig(state),
+                  icon: const Icon(Icons.cloud_done_outlined, size: 18),
+                  label: const Text('测试连接'),
+                ),
+              ],
+            ),
+            if (_storageStatus != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 10),
+                child: Text(
+                  _storageStatus!,
+                  style: TextStyle(
+                    color: (_storageStatusOk ?? false)
+                        ? AppColors.jade
+                        : AppColors.danger,
+                    fontSize: 12,
+                    height: 1.7,
+                  ),
+                ),
+              ),
+            const SizedBox(height: 8),
+            const Text(
+              '缤纷云填法：Endpoint https://s3.bitiful.net、Region cn-east-1、'
+              '桶名与子账户的 Access Key / Secret Key。\n'
+              '子账户必须先在缤纷云控制台「子账户&Key」里被授予该桶的读写权限，'
+              '否则会报 AccessDenied（可点「测试连接」验证）。\n'
+              '密钥只保存在服务端数据库，App 里不会显示；公开域名留空则资源由服务端中转。',
+              style: TextStyle(
+                color: AppColors.textFaint,
+                fontSize: 12,
+                height: 1.9,
+              ),
+            ),
+          ],
+        ],
+      ),
     );
   }
 
