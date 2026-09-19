@@ -15,7 +15,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mysql_client/mysql_client.dart';
 
 import 'package:luoyunzong/data/direct_repository.dart';
-import 'package:luoyunzong/data/s3_client.dart';
 import 'package:luoyunzong/domain/models.dart';
 
 Archive _archive(String notice) {

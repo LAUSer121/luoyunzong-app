@@ -23,6 +23,9 @@ dependencies:
   media_kit_libs_video: ^1.0.7
   image: ^4.10.1
   http: ^1.6.0
+  crypto: ^3.0.7
+  # 直连模式：App 直接连 MySQL（Web 端走 stub，不会编译到 dart:io）
+  mysql_client: ^0.0.27
 
 dev_dependencies:
   flutter_test:

@@ -15,7 +15,6 @@ import '../../core/image_utils.dart';
 import '../../core/theme.dart';
 import '../../data/api_client.dart';
 import '../../data/direct_repository.dart';
-import '../../data/s3_client.dart';
 import '../../data/settings_store.dart';
 import '../../data/wallpaper_client.dart';
 import '../../domain/models.dart';
