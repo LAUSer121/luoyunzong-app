@@ -85,8 +85,15 @@ class Member {
   List<String> subRoles;
   int contribution;
 
-  /// 人物备注（只有管理员能改；随存档保存，会同步到云端）。
+  /// 人物备注：填了就**当姓名显示**（名单里直接显示这个），留空则显示原名。
+  /// 只有管理员能改；随存档保存，会同步到云端。
   String remark;
+
+  /// 界面上显示的名字：备注优先，其次原名。
+  String get displayName {
+    final String r = remark.trim();
+    return r.isEmpty ? name : r;
+  }
 
   bool get isMortal => role == '凡人';
 

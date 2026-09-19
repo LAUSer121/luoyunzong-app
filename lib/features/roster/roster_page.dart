@@ -502,24 +502,26 @@ class _RosterPageState extends State<RosterPage> {
         children: <Widget>[
           const Padding(
             padding: EdgeInsets.only(top: 8, bottom: 4),
-            child: SectionTitle('成员名册', subtitle: '按职务权重排序，前三名金银铜高亮'),
+            child: SectionTitle(
+              '成员名册',
+              subtitle: '按职务权重排序，前三名金银铜高亮；「备注」填了就直接当姓名显示',
+            ),
           ),
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: ConstrainedBox(
-              constraints: const BoxConstraints(minWidth: 1210),
+              constraints: const BoxConstraints(minWidth: 980),
               child: SizedBox(
-                width: 1210,
+                width: 980,
                 child: Table(
                   columnWidths: const <int, TableColumnWidth>{
                     0: FixedColumnWidth(56),
                     1: FixedColumnWidth(64),
-                    2: FixedColumnWidth(140),
+                    2: FixedColumnWidth(220),
                     3: FixedColumnWidth(280),
                     4: FixedColumnWidth(190),
                     5: FixedColumnWidth(90),
-                    6: FixedColumnWidth(200),
-                    7: FixedColumnWidth(150),
+                    6: FixedColumnWidth(150),
                   },
                   defaultVerticalAlignment: TableCellVerticalAlignment.middle,
                   children: <TableRow>[
@@ -531,7 +533,6 @@ class _RosterPageState extends State<RosterPage> {
                         _Th('宗门职务'),
                         _Th('修为境界'),
                         _Th('贡献点'),
-                        _Th('备注'),
                         _Th('操作'),
                       ],
                     ),
@@ -566,7 +567,26 @@ class _RosterPageState extends State<RosterPage> {
         ),
         Padding(
           padding: const EdgeInsets.symmetric(vertical: 10),
-          child: MedalName(m.name, i),
+          // 备注填了就直接当姓名显示（样式与原姓名完全一致）；
+          // 只有当备注和原名不同时，才在下面用一行小字标出原名，避免认不出人。
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              MedalName(m.displayName, i),
+              if (m.remark.isNotEmpty && m.remark != m.name)
+                Padding(
+                  padding: const EdgeInsets.only(top: 2),
+                  child: Text(
+                    '原名：${m.name}',
+                    style: const TextStyle(
+                      color: AppColors.textFaint,
+                      fontSize: 11,
+                    ),
+                  ),
+                ),
+            ],
+          ),
         ),
         Padding(
           padding: const EdgeInsets.symmetric(vertical: 8),
@@ -588,21 +608,6 @@ class _RosterPageState extends State<RosterPage> {
           child: Text(
             '${m.contribution}',
             style: const TextStyle(color: AppColors.jade, fontSize: 14),
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 6),
-          child: Text(
-            m.remark.isEmpty ? '—' : m.remark,
-            maxLines: 3,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              color: m.remark.isEmpty
-                  ? AppColors.textFaint
-                  : AppColors.textMuted,
-              fontSize: 12,
-              height: 1.5,
-            ),
           ),
         ),
         Padding(
@@ -761,8 +766,8 @@ class _RosterPageState extends State<RosterPage> {
                         maxLines: 3,
                         minLines: 2,
                         decoration: const InputDecoration(
-                          labelText: '备注（仅管理员可改）',
-                          hintText: '例如：擅长炼丹、已闭关、掌门亲传…',
+                          labelText: '显示名 / 备注（仅管理员可改）',
+                          hintText: '填了就替换名单里显示的姓名；留空则显示原名',
                           alignLabelWithHint: true,
                         ),
                       ),

@@ -63,7 +63,7 @@ void main() {
     expect(state.archive.memberList.single.remark, '掌门亲传');
   });
 
-  testWidgets('只读模式：名单只显示备注，没有修改入口', (WidgetTester tester) async {
+  testWidgets('只读模式：备注直接当姓名显示（没有单独的备注列）', (WidgetTester tester) async {
     tester.view.physicalSize = const Size(1400, 900);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
@@ -81,12 +81,33 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('备注'), findsOneWidget, reason: '表头要有备注列');
-    expect(find.text('擅长炼丹'), findsOneWidget, reason: '备注要显示出来');
+    expect(find.text('备注'), findsNothing, reason: '不再单独开一列');
+    expect(find.text('擅长炼丹'), findsOneWidget, reason: '备注要顶在姓名那一列显示');
+    expect(find.text('原名：韩立'), findsOneWidget, reason: '标出原名便于认人');
     expect(find.text('修改'), findsNothing, reason: '未解锁时没有修改按钮');
   });
 
-  testWidgets('管理员在「修改」弹窗里能改备注并保存', (WidgetTester tester) async {
+  testWidgets('没填备注时，姓名还是原来那个', (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(1400, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    final AppState state = _state();
+    state.archive.memberList.add(Member(name: '李四', role: '外门弟子'));
+
+    await tester.pumpWidget(
+      ChangeNotifierProvider<AppState>.value(
+        value: state,
+        child: const MaterialApp(home: Scaffold(body: RosterPage())),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('李四'), findsOneWidget);
+    expect(find.textContaining('原名：'), findsNothing);
+  });
+
+  testWidgets('管理员在「修改」弹窗里改显示名并保存', (WidgetTester tester) async {
     tester.view.physicalSize = const Size(1400, 1000);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
@@ -105,13 +126,13 @@ void main() {
     await tester.tap(find.text('修改'));
     await tester.pumpAndSettle();
 
-    // 弹窗里有备注输入框 + 更换头像 / 立绘入口。
-    expect(find.text('备注（仅管理员可改）'), findsOneWidget);
+    // 弹窗里有显示名输入框 + 更换头像 / 立绘入口。
+    expect(find.text('显示名 / 备注（仅管理员可改）'), findsOneWidget);
     expect(find.text('更换头像'), findsOneWidget);
     expect(find.text('立绘 / 视频'), findsOneWidget);
 
     await tester.enterText(
-      find.widgetWithText(TextField, '备注（仅管理员可改）'),
+      find.widgetWithText(TextField, '显示名 / 备注（仅管理员可改）'),
       '首席炼丹师',
     );
     await tester.pumpAndSettle();
@@ -120,7 +141,9 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(state.archive.memberList.single.remark, '首席炼丹师');
-    expect(find.text('首席炼丹师'), findsWidgets, reason: '保存后表格里应显示备注');
+    expect(state.archive.memberList.single.displayName, '首席炼丹师');
+    expect(find.text('首席炼丹师'), findsWidgets, reason: '名单里直接显示这个');
+    expect(find.text('原名：韩立'), findsOneWidget);
 
     await state.flush(); // 收掉 800ms 防抖定时器
   });
