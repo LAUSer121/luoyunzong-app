@@ -46,10 +46,11 @@ void main() {
     await tester.pumpWidget(_harness(state));
     await tester.pump();
 
-    // 展开悬浮面板
+    // 展开悬浮面板：默认曲单里已经有「默认音乐」（不凡 —— 王铮亮）。
     await tester.tap(find.byType(InkWell).first);
     await tester.pump(const Duration(milliseconds: 300));
-    expect(find.text('未选择音乐'), findsOneWidget);
+    expect(find.text('不凡'), findsOneWidget);
+    expect(find.text('王铮亮'), findsOneWidget);
 
     // 加入一首在线曲目：应立刻反映到面板（曾经要重新展开才刷新）
     state.bgm.addOnlineTrack(

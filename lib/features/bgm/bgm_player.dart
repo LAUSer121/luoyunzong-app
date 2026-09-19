@@ -770,3 +770,186 @@ Future<void> showRadioDialog(BuildContext context, AppState state) async {
   );
   keyword.dispose();
 }
+
+/// 「默认音乐」选择器：输入歌名 → 在线搜出候选 → 点一首设为默认音乐。
+///
+/// 返回值：用户选中的曲目（取消则返回 null，此时调用方可以只保存输入的名称）。
+Future<OnlineTrack?> showDefaultTrackPicker(
+  BuildContext context,
+  AppState state, {
+  String initialQuery = '',
+}) async {
+  final TextEditingController keyword = TextEditingController(
+    text: initialQuery.trim().isEmpty
+        ? kDefaultTrackQuery
+        : initialQuery.trim(),
+  );
+  List<OnlineTrack> results = <OnlineTrack>[];
+  bool loading = false;
+  String? error;
+  bool searched = false;
+
+  final OnlineTrack? picked = await showDialog<OnlineTrack>(
+    context: context,
+    builder: (BuildContext ctx) => StatefulBuilder(
+      builder: (BuildContext ctx, void Function(void Function()) setLocal) {
+        Future<void> runSearch(String kw) async {
+          if (kw.trim().isEmpty) return;
+          setLocal(() {
+            loading = true;
+            error = null;
+          });
+          try {
+            final List<OnlineTrack> found = await state.netease.search(
+              kw.trim(),
+            );
+            setLocal(() {
+              results = found;
+              searched = true;
+              loading = false;
+            });
+          } on NeteaseException catch (e) {
+            setLocal(() {
+              error = e.message;
+              loading = false;
+              searched = true;
+            });
+          } catch (e) {
+            setLocal(() {
+              error = '搜索失败：$e';
+              loading = false;
+              searched = true;
+            });
+          }
+        }
+
+        return AlertDialog(
+          title: const Row(
+            children: <Widget>[
+              Icon(Icons.music_note_rounded, size: 20, color: AppColors.gold),
+              SizedBox(width: 8),
+              Text('设置默认音乐'),
+            ],
+          ),
+          content: SizedBox(
+            width: 560,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Row(
+                  children: <Widget>[
+                    Expanded(
+                      child: TextField(
+                        controller: keyword,
+                        autofocus: true,
+                        decoration: const InputDecoration(
+                          labelText: '歌名 / 歌手',
+                          hintText: '例如：不凡 王铮亮、沧海一声笑',
+                        ),
+                        onSubmitted: (String v) => runSearch(v),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    FilledButton(
+                      onPressed: loading ? null : () => runSearch(keyword.text),
+                      child: Text(loading ? '搜索中…' : '搜索'),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                if (error != null)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    child: Text(
+                      error!,
+                      style: const TextStyle(
+                        color: AppColors.danger,
+                        fontSize: 12,
+                        height: 1.7,
+                      ),
+                    ),
+                  )
+                else if (loading)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 18),
+                    child: Center(
+                      child: SizedBox(
+                        width: 22,
+                        height: 22,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    ),
+                  )
+                else if (results.isNotEmpty)
+                  Flexible(
+                    child: SizedBox(
+                      width: 560,
+                      child: ListView.builder(
+                        shrinkWrap: true,
+                        itemCount: results.length,
+                        itemBuilder: (BuildContext _, int i) {
+                          final OnlineTrack t = results[i];
+                          return ListTile(
+                            dense: true,
+                            leading: CoverArt(
+                              url: NeteaseClient.coverUrl(t, size: 80),
+                              size: 40,
+                            ),
+                            title: Text(
+                              t.name,
+                              style: const TextStyle(fontSize: 13),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            subtitle: Text(
+                              t.subtitle,
+                              style: const TextStyle(
+                                fontSize: 11,
+                                color: AppColors.textFaint,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            trailing: const Icon(
+                              Icons.check_circle_outline,
+                              size: 20,
+                            ),
+                            onTap: () => Navigator.pop(ctx, t),
+                          );
+                        },
+                      ),
+                    ),
+                  )
+                else if (searched)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 16),
+                    child: Text(
+                      '没有搜到结果，换个关键词试试',
+                      style: TextStyle(color: AppColors.textFaint),
+                    ),
+                  )
+                else
+                  const Text(
+                    '搜索到的曲目会保存到存档（含歌名、歌手与封面），'
+                    '开关与名称都会同步到云端。',
+                    style: TextStyle(
+                      color: AppColors.textFaint,
+                      fontSize: 12,
+                      height: 1.8,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('取消'),
+            ),
+          ],
+        );
+      },
+    ),
+  );
+  keyword.dispose();
+  return picked;
+}

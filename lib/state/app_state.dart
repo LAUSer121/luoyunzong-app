@@ -762,6 +762,43 @@ class AppState extends ChangeNotifier {
   /// 是否允许启动后自动播放。
   bool get bgmAutoPlay => archive.bgm.autoPlay;
 
+  /// 是否启用默认音乐（出厂是不凡 —— 王铮亮）。
+  bool get useDefaultTrack => archive.bgm.useDefaultTrack;
+
+  OnlineTrack get defaultTrack => archive.bgm.defaultTrack;
+
+  /// 默认音乐的搜索词/名称（用户输入什么就存什么）。
+  String get defaultTrackQuery => archive.bgm.defaultTrackQuery;
+
+  /// 开关「默认音乐」；这项存在存档里，所以会随云同步到其他设备。
+  void setUseDefaultTrack(bool value) {
+    mutate((Archive a) {
+      a.bgm.useDefaultTrack = value;
+      // 关掉后下标可能越界，夹回有效范围。
+      final int max = a.bgm.trackCount - 1;
+      if (a.bgm.index > max) a.bgm.index = max < 0 ? 0 : max;
+    });
+    refreshBgmFromArchive();
+  }
+
+  /// 只记住用户输入的默认音乐名称（还没搜到对应曲目时也能同步到云端）。
+  void setDefaultTrackQuery(String query) {
+    final String trimmed = query.trim();
+    if (trimmed.isEmpty || trimmed == archive.bgm.defaultTrackQuery) return;
+    mutate((Archive a) => a.bgm.defaultTrackQuery = trimmed);
+  }
+
+  /// 把某首在线曲目设为默认音乐（同时打开开关，并把名称写进存档同步云端）。
+  void setDefaultTrack(OnlineTrack track, {String? query}) {
+    mutate((Archive a) {
+      a.bgm.defaultTrack = track;
+      final String trimmed = (query ?? '').trim();
+      a.bgm.defaultTrackQuery = trimmed.isEmpty ? track.name : trimmed;
+      a.bgm.useDefaultTrack = true;
+    });
+    refreshBgmFromArchive();
+  }
+
   /// 启动时自动播放：曲单为空则自动挑选仙侠电台，否则播放已有曲目。
   Future<void> autoStartBgm() async {
     if (!bgmAutoPlay) return;
@@ -807,7 +844,7 @@ class AppState extends ChangeNotifier {
     if (archive.bgm.customNames.contains(trimmed)) return false;
     mutate((Archive a) {
       a.bgm.customNames.add(trimmed);
-      a.bgm.index = a.bgm.customNames.length - 1;
+      a.bgm.index = a.bgm.defaultOffset + a.bgm.customNames.length - 1;
     });
     unawaited(bgm.syncFromArchive(archive));
     return true;
@@ -816,10 +853,11 @@ class AppState extends ChangeNotifier {
   void removeBgmName(String name) {
     mutate((Archive a) {
       a.bgm.customNames.remove(name);
-      if (a.bgm.index >= a.bgm.customNames.length) {
-        a.bgm.index = a.bgm.customNames.isEmpty
+      final int max = a.bgm.trackCount - 1;
+      if (a.bgm.index > max || a.bgm.index < 0) {
+        a.bgm.index = max <= 0
             ? 0
-            : a.bgm.customNames.length - 1;
+            : a.bgm.defaultOffset + a.bgm.customNames.length - 1;
       }
     });
     unawaited(bgm.syncFromArchive(archive));
@@ -834,7 +872,7 @@ class AppState extends ChangeNotifier {
       if (!archive.bgm.customNames.contains(f.name) && await _stored(f.name)) {
         mutate((Archive a) {
           a.bgm.customNames.add(f.name);
-          a.bgm.index = a.bgm.customNames.length - 1;
+          a.bgm.index = a.bgm.defaultOffset + a.bgm.customNames.length - 1;
         });
       }
     }

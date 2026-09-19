@@ -104,7 +104,21 @@ abstract class LuoyunRepository {
 - **离线可用**：云端不可达时归类为 `SyncAction.offline`，不报错、不改数据，
   界面显示「云端暂不可达，稍后会自动重试」；应用始终能纯本地运行。
 
-## 8. 测试与联调速查
+## 8. 默认音乐（不凡 —— 王铮亮，可改）
+
+- 曲单第一首固定是「默认音乐」，**开关 + 名称（含在线曲目 id）都存在存档里**
+  （`Archive.bgm.useDefaultTrack` / `defaultTrackQuery` / `defaultTrack`），
+  所以会跟着云同步到其它设备；这与「自动同步」开关（只存本机设备）刚好相反。
+- 出厂值是 **不凡 —— 王铮亮**（《凡人修仙传》动画剧原声带，网易云 id `1465288702`）。
+  老存档没有这些字段时，`BgmSetting.fromJson` 会自动补上出厂值并默认开启。
+- 想换成别的歌：设置 → 音乐与在线电台 → 输入歌名 → 「搜索并设为默认」，
+  搜索命中的曲目（歌名/歌手/封面/id）会写进存档；搜不到也不影响保存名称。
+- 播放路径仍是「按 id 现取流地址」（`NeteaseClient.streamUrl` 跟到 CDN 直链），
+  启动自动播放时先放这一首（`AppState.autoStartBgm` → `bgm.autoStart`）。
+- 下标口径：存档里的 `bgm.index` 指向「含默认音乐在内」的有效曲单，
+  新增/删除本地曲目时用 `BgmSetting.defaultOffset` 做偏移。
+
+## 9. 测试与联调速查
 
 ```powershell
 # 1) 起本地服务端（.env 在 server/ 下，dotenv 按当前目录加载）

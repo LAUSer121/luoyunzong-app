@@ -16,6 +16,7 @@ import 'package:luoyunzong/core/bootstrap.dart';
 import 'package:luoyunzong/data/api_client.dart';
 import 'package:luoyunzong/data/api_repository.dart';
 import 'package:luoyunzong/data/local_repository.dart';
+import 'package:luoyunzong/data/netease_client.dart';
 import 'package:luoyunzong/data/settings_store.dart';
 import 'package:luoyunzong/domain/models.dart';
 import 'package:luoyunzong/state/app_state.dart';
@@ -179,4 +180,29 @@ void main() {
     sync.dispose();
     client.close();
   }, skip: flag == '1' ? false : '需要本地服务端；设置 LUOYUNZONG_E2E=1 后运行');
+
+  test('默认音乐（不凡 —— 王铮亮）能搜到并取到真实播放地址', () async {
+    final NeteaseClient netease = NeteaseClient();
+
+    // 1) 按出厂搜索词搜一次：第一个结果就应该是不凡 —— 王铮亮。
+    final List<OnlineTrack> found = await netease.search(kDefaultTrackQuery);
+    expect(found, isNotEmpty, reason: '在线曲库要能搜到默认音乐');
+    stdout.writeln(
+      '[E2E] 默认音乐搜索：${found.take(3).map((OnlineTrack t) => '${t.name}-${t.artist}').join(' / ')}',
+    );
+
+    // 2) 播放地址：必须跟到 CDN 的音频直链（Windows 端曾因 302 播不出来）。
+    final OnlineTrack track = newDefaultOnlineTrack();
+    final String? url = await netease.streamUrl(track.id);
+    expect(url, isNotNull, reason: '默认音乐要能取到播放地址');
+    expect(url, contains('http'), reason: '播放地址应是可播放的直链');
+    expect(
+      url,
+      isNot(contains('music.163.com/song/media')),
+      reason: '要跟到直链而不是 302 页',
+    );
+    stdout.writeln('[E2E] 默认音乐播放地址：${url!.split('?').first}');
+
+    netease.close();
+  }, skip: flag == '1' ? false : '需要联网；设置 LUOYUNZONG_E2E=1 后运行');
 }

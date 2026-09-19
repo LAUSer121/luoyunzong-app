@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/app_config.dart';
+import '../bgm/bgm_player.dart';
 import '../../core/constants.dart';
 import '../../core/file_utils.dart';
 import '../../core/image_utils.dart';
@@ -34,6 +35,7 @@ class _SettingsPageState extends State<SettingsPage> {
   final TextEditingController _apiUrl = TextEditingController();
   final TextEditingController _apiToken = TextEditingController();
   final TextEditingController _neteaseController = TextEditingController();
+  final TextEditingController _defaultTrackController = TextEditingController();
   String? _storagePath;
   bool _storagePathRequested = false;
   String? _apiStatus;
@@ -41,6 +43,7 @@ class _SettingsPageState extends State<SettingsPage> {
   bool _bgBusy = false;
   bool _useRemote = false;
   bool _loadedSettings = false;
+  bool _defaultTrackSeeded = false;
 
   @override
   void initState() {
@@ -68,6 +71,7 @@ class _SettingsPageState extends State<SettingsPage> {
     _apiUrl.dispose();
     _apiToken.dispose();
     _neteaseController.dispose();
+    _defaultTrackController.dispose();
     super.dispose();
   }
 
@@ -76,11 +80,41 @@ class _SettingsPageState extends State<SettingsPage> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
+  /// 搜索并设置默认音乐：选中哪首就存哪首；没选（或搜不到）也把名称存进存档。
+  Future<void> _pickDefaultTrack(AppState state, String query) async {
+    final String text = query.trim();
+    if (text.isEmpty) {
+      _toast('先输入歌名，例如：不凡 王铮亮');
+      return;
+    }
+    final OnlineTrack? picked = await showDefaultTrackPicker(
+      context,
+      state,
+      initialQuery: text,
+    );
+    if (!mounted) return;
+    if (picked == null) {
+      // 只保存名称：至少让云端记住「默认音乐叫什么」。
+      state.setDefaultTrackQuery(text);
+      _toast('已保存默认音乐名称：$text（未绑定在线曲目）');
+      return;
+    }
+    state.setDefaultTrack(picked, query: text);
+    _defaultTrackController.text = state.defaultTrackQuery;
+    _toast('默认音乐已设为：${picked.name} · ${picked.artist}');
+  }
+
   @override
   Widget build(BuildContext context) {
     final AppState state = context.watch<AppState>();
     final Archive archive = state.archive;
     final bool unlocked = state.unlocked;
+
+    // 默认音乐输入框：首帧用存档里的名称填充一次（之后交给用户编辑）。
+    if (!_defaultTrackSeeded && state.ready) {
+      _defaultTrackSeeded = true;
+      _defaultTrackController.text = state.defaultTrackQuery;
+    }
 
     if (_storagePath == null && !_storagePathRequested) {
       _storagePathRequested = true;
@@ -305,6 +339,51 @@ class _SettingsPageState extends State<SettingsPage> {
             subtitle: const Text(
               '关闭后需手动点开音乐悬浮球播放',
               style: TextStyle(fontSize: 12, color: AppColors.textFaint),
+            ),
+          ),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            value: state.useDefaultTrack,
+            onChanged: state.setUseDefaultTrack,
+            title: const Text('启用默认音乐', style: TextStyle(fontSize: 14)),
+            subtitle: Text(
+              state.useDefaultTrack
+                  ? '当前：${state.defaultTrack.name} · ${state.defaultTrack.artist}'
+                        '（曲单第一首，自动播放时先放它）'
+                  : '已关闭：不再自动把默认音乐放进曲单',
+              style: const TextStyle(fontSize: 12, color: AppColors.textFaint),
+            ),
+          ),
+          const SizedBox(height: 4),
+          Row(
+            children: <Widget>[
+              Expanded(
+                child: TextField(
+                  controller: _defaultTrackController,
+                  decoration: const InputDecoration(
+                    labelText: '默认音乐',
+                    hintText: '输入歌名或「歌名 歌手」，例如：不凡 王铮亮',
+                  ),
+                  onSubmitted: (String v) => _pickDefaultTrack(state, v),
+                ),
+              ),
+              const SizedBox(width: 12),
+              FilledButton.icon(
+                onPressed: () =>
+                    _pickDefaultTrack(state, _defaultTrackController.text),
+                icon: const Icon(Icons.search, size: 18),
+                label: const Text('搜索并设为默认'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            '开关和这个名称都保存在存档里，会跟着云同步到其它设备；'
+            '搜索只是把歌名对上在线曲库（拿到 id 才能播放），失败也能只保存名称。',
+            style: TextStyle(
+              color: AppColors.textFaint,
+              fontSize: 12,
+              height: 1.8,
             ),
           ),
           const SizedBox(height: 8),

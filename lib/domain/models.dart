@@ -409,6 +409,21 @@ class OnlineTrack {
   };
 }
 
+/// 默认音乐：**不凡 —— 王铮亮**（《凡人修仙传》动画剧原声带）。
+///
+/// 出厂默认值；设置里可以改成任意歌曲名（会自动到在线曲库搜出对应曲目）。
+/// 曲单里固定排第一首，可用开关关掉；开关与名称都随存档同步到云端。
+OnlineTrack newDefaultOnlineTrack() => OnlineTrack(
+  id: '1465288702',
+  name: '不凡',
+  artist: '王铮亮',
+  cover: 'https://p2.music.126.net/lvfb_64QYmbib7ccHgDNJA==/109951165165604312.jpg?param=300y300',
+  durationMs: 211802,
+);
+
+/// 默认音乐的出厂搜索词。
+const String kDefaultTrackQuery = '不凡 王铮亮';
+
 /// BGM 设置。
 class BgmSetting {
   BgmSetting({
@@ -417,8 +432,12 @@ class BgmSetting {
     List<OnlineTrack>? onlineTracks,
     this.index = 0,
     this.autoPlay = true,
+    this.useDefaultTrack = true,
+    this.defaultTrackQuery = kDefaultTrackQuery,
+    OnlineTrack? defaultTrack,
   }) : customNames = customNames ?? <String>[],
-       onlineTracks = onlineTracks ?? <OnlineTrack>[];
+       onlineTracks = onlineTracks ?? <OnlineTrack>[],
+       defaultTrack = defaultTrack ?? newDefaultOnlineTrack();
 
   factory BgmSetting.fromJson(Map<String, Object?> json) {
     final List<OnlineTrack> online = <OnlineTrack>[];
@@ -427,12 +446,21 @@ class BgmSetting {
       final OnlineTrack track = OnlineTrack.fromJson(_asMap(e));
       if (track.id.isNotEmpty) online.add(track);
     }
+    // 老存档没有这几项：默认打开「默认音乐」，并自动补上出厂曲目信息。
+    final Object? rawDefault = json['defaultTrack'];
+    final OnlineTrack? stored = rawDefault is Map
+        ? OnlineTrack.fromJson(_asMap(rawDefault))
+        : null;
+    final String query = _asString(json['defaultTrackQuery']);
     return BgmSetting(
       volume: _asDouble(json['volume'], 0.6).clamp(0, 1).toDouble(),
       customNames: _asStringList(json['customNames']),
       onlineTracks: online,
       index: _asInt(json['index']),
       autoPlay: _asBool(json['autoPlay'], true),
+      useDefaultTrack: _asBool(json['useDefaultTrack'], true),
+      defaultTrackQuery: query.isEmpty ? kDefaultTrackQuery : query,
+      defaultTrack: (stored == null || stored.id.isEmpty) ? null : stored,
     );
   }
 
@@ -446,12 +474,34 @@ class BgmSetting {
   /// 启动后是否自动播放 BGM。
   bool autoPlay;
 
+  /// 是否启用「默认音乐」（曲单第一首）。**随存档保存，因此会同步到云端**。
+  bool useDefaultTrack;
+
+  /// 默认音乐的搜索词/名称：用户输入什么就存什么，同样随存档同步到云端。
+  String defaultTrackQuery;
+
+  /// 默认音乐本体（含在线曲目 id，用于播放）；出厂是「不凡 —— 王铮亮」。
+  OnlineTrack defaultTrack;
+
+  /// 默认音乐是否真的占一个曲单位置。
+  bool get hasDefaultSlot => useDefaultTrack;
+
+  /// 有效曲目总数（含默认音乐那一首）。
+  int get trackCount =>
+      (hasDefaultSlot ? 1 : 0) + customNames.length + onlineTracks.length;
+
+  /// 默认音乐带来的下标偏移（本地曲目在有效曲单里的位置要加上它）。
+  int get defaultOffset => hasDefaultSlot ? 1 : 0;
+
   Map<String, Object?> toJson() => <String, Object?>{
     'volume': volume,
     'customNames': customNames,
     'onlineTracks': onlineTracks.map((OnlineTrack t) => t.toJson()).toList(),
     'index': index,
     'autoPlay': autoPlay,
+    'useDefaultTrack': useDefaultTrack,
+    'defaultTrackQuery': defaultTrackQuery,
+    'defaultTrack': defaultTrack.toJson(),
   };
 }
 

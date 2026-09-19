@@ -189,6 +189,18 @@ class BgmController extends ChangeNotifier {
 
     _tracks
       ..clear()
+      // 曲单第一首固定是「默认音乐」（不凡 —— 王铮亮），可用设置里的开关关掉；
+      // 这个开关存在存档里，所以会跟着云同步走。
+      ..addAll(
+        archive.bgm.hasDefaultSlot
+            ? <BgmTrack>[
+                BgmTrack(
+                  name: archive.bgm.defaultTrack.name,
+                  online: archive.bgm.defaultTrack,
+                ),
+              ]
+            : const <BgmTrack>[],
+      )
       ..addAll(
         archive.bgm.customNames.map((String name) => BgmTrack(name: name)),
       )
