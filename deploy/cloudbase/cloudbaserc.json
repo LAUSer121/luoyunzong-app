@@ -1,0 +1,17 @@
+{
+  "version": "2.0",
+  "envId": "{{envId}}",
+  "functionRoot": "./functions",
+  "functions": [
+    {
+      "name": "luoyunzong-api",
+      "timeout": 60,
+      "runtime": "Nodejs18.15",
+      "memorySize": 512,
+      "handler": "index.main",
+      "installDependency": true,
+      "ignore": ["node_modules", "node_modules/**/*", ".env"],
+      "envVariables": {}
+    }
+  ]
+}

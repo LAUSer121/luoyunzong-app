@@ -1,0 +1,13 @@
+{
+  "name": "luoyunzong-cloudbase-api",
+  "version": "1.0.0",
+  "private": true,
+  "description": "落云宗云同步接口（CloudBase 云函数版）",
+  "main": "index.js",
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "express": "^4.21.2",
+    "mysql2": "^3.11.5",
+    "serverless-http": "^3.2.0"
+  }
+}

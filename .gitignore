@@ -54,3 +54,6 @@ server/ca.pem
 # Vercel 部署（根 package.json 只为 serverless 函数准备）
 node_modules/
 .vercel/
+
+# CloudBase 组装的函数包（由 build.ps1 生成）
+deploy/cloudbase/functions/*/server/

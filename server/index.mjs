@@ -452,7 +452,15 @@ export { app };
 export default app;
 
 // 直接 `node index.mjs` 跑时才监听端口；Vercel 之类由平台把 app 当 handler 用。
-const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
+const isServerless = Boolean(
+  process.env.VERCEL ||
+    process.env.AWS_LAMBDA_FUNCTION_NAME ||
+    // 腾讯云 CloudBase / SCF 运行时
+    process.env.TENCENTCLOUD_RUNENV ||
+    process.env.SCF_RUNTIME ||
+    // 兜底开关：函数平台环境变量里设 LUOYUNZONG_SERVERLESS=1
+    process.env.LUOYUNZONG_SERVERLESS,
+);
 if (!isServerless) {
   warmup().catch(() => {});
   app.listen(PORT, () => {
