@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:luoyunzong/core/constants.dart';
 import 'package:luoyunzong/data/local_repository.dart';
 import 'package:luoyunzong/data/settings_store.dart';
 import 'package:luoyunzong/domain/models.dart';
@@ -95,7 +96,94 @@ void main() {
     // 存档里不应出现任何同步开关字段（不能跟着云端跑到别的设备）。
     expect(backend.lastWritten, isNot(contains('auto_sync')));
 
+    // 只读模式：管理员工具在那里，但按钮是禁用的
+    expect(find.text('管理员工具'), findsOneWidget);
+    final Finder pushOff = find.widgetWithText(OutlinedButton, '本机覆盖云端');
+    await tester.ensureVisible(pushOff);
+    await tester.pumpAndSettle();
+    expect(tester.widget<OutlinedButton>(pushOff).onPressed, isNull);
+
     // 关掉自动同步：取消 45s 轮询定时器，避免测试结束时有挂起的 Timer。
     await sync.setAutoSync(false);
+  });
+
+  testWidgets('管理员解锁后：强制覆盖 / 重置云端都要二次确认', (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(1100, 2600);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    final MemoryBackend backend = MemoryBackend();
+    final SettingsStore store = SettingsStore();
+    final AppState state = AppState(
+      repository: LocalRepository(backend: backend),
+      localStore: LocalRepository(backend: backend),
+      settings: store,
+    );
+    await state.init();
+    state.unlock(kDefaultAdminPassword);
+
+    Archive local = _archive('本机内容');
+    DateTime? localChange = DateTime(2026, 1, 1);
+    final FakeGateway gateway = FakeGateway(
+      archive: _archive('云端内容'),
+      updatedAt: DateTime(2030, 1, 1), // 云端“更新”，但强制覆盖应该推本机
+    );
+    final SyncManager sync = SyncManager(
+      gateway: gateway,
+      readArchive: () => local,
+      applyArchive: (Archive a) async => local = a,
+      readLocalChangeAt: () => localChange,
+      markLocalSynced: (DateTime at) async => localChange = at,
+      writeSnapshot: (String json) async {},
+      readSnapshot: () async => null,
+      persistAutoSync: store.setAutoSync,
+      persistLastSyncAt: store.setLastSyncAt,
+    );
+    addTearDown(sync.dispose);
+    state.sync = sync;
+
+    await tester.pumpWidget(
+      ChangeNotifierProvider<AppState>.value(
+        value: state,
+        child: const MaterialApp(home: Scaffold(body: SettingsPage())),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final Finder pushButton = find.widgetWithText(OutlinedButton, '本机覆盖云端');
+    await tester.ensureVisible(pushButton);
+    await tester.pumpAndSettle();
+    expect(tester.widget<OutlinedButton>(pushButton).onPressed, isNotNull);
+
+    // 点一下先出二次确认；取消则什么都不做
+    await tester.tap(pushButton);
+    await tester.pumpAndSettle();
+    expect(find.text('用本机存档覆盖云端？'), findsOneWidget);
+    await tester.tap(find.text('取消'));
+    await tester.pumpAndSettle();
+    expect(gateway.puts, 0, reason: '取消后不应真的覆盖');
+
+    // 确认后才真的推
+    await tester.tap(pushButton);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('覆盖云端'));
+    await tester.pumpAndSettle();
+    expect(gateway.puts, 1);
+    expect(gateway.archive!.notice, '本机内容');
+
+    // 重置云端：确认弹窗里有「同时清空云端资源」勾选
+    final Finder resetButton = find.widgetWithText(OutlinedButton, '重置云端');
+    await tester.ensureVisible(resetButton);
+    await tester.pumpAndSettle();
+    await tester.tap(resetButton);
+    await tester.pumpAndSettle();
+    expect(find.text('重置云端？'), findsOneWidget);
+    expect(find.textContaining('同时清空云端资源'), findsOneWidget);
+    await tester.tap(find.widgetWithText(FilledButton, '重置云端'));
+    await tester.pumpAndSettle();
+
+    expect(gateway.deletes, 1);
+    expect(gateway.archive, isNull);
+    expect(sync.autoSync, isFalse, reason: '重置后自动同步会被关掉');
   });
 }

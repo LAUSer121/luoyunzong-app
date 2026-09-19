@@ -213,6 +213,17 @@ class ApiClient {
     await _send(() => _client.delete(_uri('/api/archive'), headers: _headers));
   }
 
+  /// 清空云端资源索引（管理员「重置云端」时可选），返回删掉的条数。
+  Future<int> deleteAllAssets() async {
+    final Object? data = await _send(
+      () => _client.delete(_uri('/api/assets'), headers: _headers),
+    );
+    if (data is Map && data['deleted'] is num) {
+      return (data['deleted'] as num).toInt();
+    }
+    return 0;
+  }
+
   // ------------------------------------------------------------------
   // 资源（头像 / 立绘 / 背景图 / 动态视频）
   // 存档里只存 `asset:<id>`，字节通过这两个接口收进 MySQL 的 assets 表

@@ -282,6 +282,12 @@ export async function getAsset({ id, mime, url }) {
   return null;
 }
 
+/** 删掉本地磁盘上的资源文件（重置云端时用）。 */
+export async function removeLocalAsset({ id, mime }) {
+  const file = path.join(UPLOAD_DIR, `${id}.${extOf(mime)}`);
+  await fs.rm(file, { force: true });
+}
+
 /**
  * 上传/回读/删除一个探针对象，用来在 App 里「测试连接」。
  * 返回 { ok, message }，失败时把对象存储的原话带回去（例如权限不足的 AccessDenied）。

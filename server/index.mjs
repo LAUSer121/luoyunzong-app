@@ -15,6 +15,7 @@ import {
   maxBytesForMime,
   reloadLimits,
   currentLimits,
+  removeLocalAsset,
 } from './storage.mjs';
 
 const app = express();
@@ -198,6 +199,33 @@ app.delete(
   asyncRoute(async (_req, res) => {
     await pool.query('DELETE FROM archives WHERE org_id = ?', [ORG_ID]);
     res.json({ ok: true });
+  }),
+);
+
+// 清空云端资源（管理员在 App 里「重置云端」时可选）
+// 说明：只删数据库索引；对象存储里的对象会变成孤儿（可在缤纷云控制台按前缀
+//       luoyunzong/ 批量清理），本地驱动则顺手删掉磁盘文件。
+app.delete(
+  '/api/assets',
+  auth,
+  asyncRoute(async (_req, res) => {
+    const [before] = await pool.query(
+      'SELECT id, mime, driver FROM assets WHERE org_id = ?',
+      [ORG_ID],
+    );
+    await pool.query('DELETE FROM assets WHERE org_id = ?', [ORG_ID]);
+    let removedFiles = 0;
+    for (const row of before) {
+      if (row.driver === 'local') {
+        try {
+          await removeLocalAsset({ id: row.id, mime: row.mime });
+          removedFiles++;
+        } catch {
+          // 文件不存在也不影响
+        }
+      }
+    }
+    res.json({ ok: true, deleted: before.length, removedFiles });
   }),
 );
 

@@ -217,6 +217,128 @@ class _SettingsPageState extends State<SettingsPage> {
     _loadSettings();
   }
 
+  /// 管理员工具：强制用本机覆盖云端。
+  Future<void> _forcePush(AppState state, SyncManager sync) async {
+    final bool? ok = await _confirm(
+      title: '用本机存档覆盖云端？',
+      body:
+          '会把云端存档**整个替换**成本机内容（不看时间戳）。\n'
+          '覆盖前云端那一份会自动备份到本机快照，随时可以恢复。',
+      confirmText: '覆盖云端',
+      danger: true,
+    );
+    if (ok != true) return;
+    final SyncResult r = await sync.forcePushLocal();
+    _toast(r.message);
+  }
+
+  /// 管理员工具：强制用云端覆盖本机。
+  Future<void> _forcePull(AppState state, SyncManager sync) async {
+    final bool? ok = await _confirm(
+      title: '用云端存档覆盖本机？',
+      body:
+          '会把本机存档**整个替换**成云端内容（不看时间戳）。\n'
+          '覆盖前本机那一份会自动备份到本机快照，随时可以恢复。',
+      confirmText: '覆盖本机',
+      danger: true,
+    );
+    if (ok != true) return;
+    final SyncResult r = await sync.forcePullRemote();
+    _toast(r.message);
+  }
+
+  /// 管理员工具：重置云端（清空云端存档，可选连资源一起清）。
+  Future<void> _resetCloud(AppState state, SyncManager sync) async {
+    bool includeAssets = false;
+    final bool? ok = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext ctx) => StatefulBuilder(
+        builder: (BuildContext ctx, void Function(void Function()) setLocal) =>
+            AlertDialog(
+              title: const Text('重置云端？'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  const Text(
+                    '会清空云端存档（云端那份先备份到本机快照）。\n'
+                    '清空后会自动关掉「自动同步」，避免刚清完又被推回去。',
+                    style: TextStyle(fontSize: 13, height: 1.8),
+                  ),
+                  const SizedBox(height: 8),
+                  CheckboxListTile(
+                    contentPadding: EdgeInsets.zero,
+                    value: includeAssets,
+                    onChanged: (bool? v) =>
+                        setLocal(() => includeAssets = v ?? false),
+                    title: const Text(
+                      '同时清空云端资源（头像 / 立绘 / 背景 / 视频）',
+                      style: TextStyle(fontSize: 13),
+                    ),
+                    subtitle: const Text(
+                      '只删数据库索引；对象存储里的文件可在缤纷云控制台按 luoyunzong/ 前缀批量清理',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: AppColors.textFaint,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              actions: <Widget>[
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx, false),
+                  child: const Text('取消'),
+                ),
+                FilledButton(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppColors.danger,
+                    foregroundColor: const Color(0xFF2A0D0D),
+                  ),
+                  onPressed: () => Navigator.pop(ctx, true),
+                  child: const Text('重置云端'),
+                ),
+              ],
+            ),
+      ),
+    );
+    if (ok != true) return;
+    final SyncResult r = await sync.resetCloud(includeAssets: includeAssets);
+    _toast(r.message);
+  }
+
+  /// 统一的二次确认弹窗。
+  Future<bool?> _confirm({
+    required String title,
+    required String body,
+    required String confirmText,
+    bool danger = false,
+  }) {
+    return showDialog<bool>(
+      context: context,
+      builder: (BuildContext ctx) => AlertDialog(
+        title: Text(title),
+        content: Text(body, style: const TextStyle(fontSize: 13, height: 1.8)),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            style: danger
+                ? FilledButton.styleFrom(
+                    backgroundColor: AppColors.danger,
+                    foregroundColor: const Color(0xFF2A0D0D),
+                  )
+                : null,
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(confirmText),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _loadSettings() async {
     final String url = await _store.apiBaseUrl();
     final String token = await _store.apiToken();
@@ -664,6 +786,74 @@ class _SettingsPageState extends State<SettingsPage> {
                         : () => _restoreSnapshot(state, sync),
                     icon: const Icon(Icons.history_outlined, size: 18),
                     label: const Text('恢复上次同步前的备份'),
+                  ),
+                ],
+              ),
+              // ---- 管理员工具（危险操作，仅解锁管理员后显示）----
+              const SizedBox(height: 18),
+              Divider(color: AppColors.outline.withValues(alpha: 0.6)),
+              const SizedBox(height: 10),
+              Row(
+                children: <Widget>[
+                  const Icon(
+                    Icons.admin_panel_settings_outlined,
+                    size: 16,
+                    color: AppColors.goldDeep,
+                  ),
+                  const SizedBox(width: 6),
+                  const Text(
+                    '管理员工具',
+                    style: TextStyle(
+                      color: AppColors.gold,
+                      fontSize: 13,
+                      letterSpacing: 1.0,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      state.unlocked
+                          ? '强制覆盖 / 重置云端，操作前都有二次确认，且会自动备份'
+                          : '解锁管理员后可用（右上角「只读模式」处解锁）',
+                      style: const TextStyle(
+                        color: AppColors.textFaint,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 12,
+                runSpacing: 12,
+                children: <Widget>[
+                  OutlinedButton.icon(
+                    onPressed: state.unlocked && !sync.syncing
+                        ? () => _forcePush(state, sync)
+                        : null,
+                    icon: const Icon(Icons.upload_outlined, size: 18),
+                    label: const Text('本机覆盖云端'),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: state.unlocked && !sync.syncing
+                        ? () => _forcePull(state, sync)
+                        : null,
+                    icon: const Icon(Icons.download_outlined, size: 18),
+                    label: const Text('云端覆盖本机'),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: state.unlocked && !sync.syncing
+                        ? () => _resetCloud(state, sync)
+                        : null,
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppColors.danger,
+                      side: BorderSide(
+                        color: AppColors.danger.withValues(alpha: 0.6),
+                      ),
+                    ),
+                    icon: const Icon(Icons.delete_forever_outlined, size: 18),
+                    label: const Text('重置云端'),
                   ),
                 ],
               ),

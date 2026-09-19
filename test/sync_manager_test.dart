@@ -35,6 +35,27 @@ class FakeGateway implements CloudGateway {
     this.archive = archive;
     updatedAt = DateTime.now().add(const Duration(seconds: 1));
   }
+
+  /// 记录「清空云端」被调用了几次（管理员工具用）。
+  int deletes = 0;
+  int assetWipes = 0;
+
+  @override
+  Future<void> deleteArchive() async {
+    final Object? f = failure;
+    if (f != null) throw f;
+    deletes++;
+    archive = null;
+    updatedAt = null;
+  }
+
+  @override
+  Future<int> deleteAllAssets() async {
+    final Object? f = failure;
+    if (f != null) throw f;
+    assetWipes++;
+    return 3;
+  }
 }
 
 /// 构造一份可区分的存档（用公告内容区分版本）。
@@ -284,6 +305,87 @@ void main() {
     await Future<void>.delayed(const Duration(milliseconds: 20));
 
     expect(gateway.puts, 0);
+    sync.dispose();
+  });
+
+  // ------------------------------------------------------------------
+  // 管理员工具：强制覆盖 / 重置云端
+  // ------------------------------------------------------------------
+
+  test('本机覆盖云端：不看时间戳，推送前把云端那份备份到快照', () async {
+    final FakeGateway gateway = FakeGateway(
+      archive: _archive('云端新版本'),
+      updatedAt: DateTime(2030, 1, 1), // 比本机新，强制覆盖也应该推本机上去
+    );
+    final List<String> snapshots = <String>[];
+    final SyncManager sync = _manager(
+      gateway: gateway,
+      readArchive: () => _archive('本机版本'),
+      applied: <Archive>[],
+      snapshots: snapshots,
+      readLocalChangeAt: () => DateTime(2020, 1, 1),
+    );
+
+    final SyncResult r = await sync.forcePushLocal();
+
+    expect(r.action, SyncAction.pushed);
+    expect(gateway.puts, 1);
+    expect(gateway.archive!.notice, '本机版本');
+    expect(snapshots.single, contains('云端新版本'));
+    sync.dispose();
+  });
+
+  test('云端覆盖本机：不看时间戳，覆盖前把本机那份备份到快照', () async {
+    final FakeGateway gateway = FakeGateway(
+      archive: _archive('云端版本'),
+      updatedAt: DateTime(2020, 1, 1), // 比本机旧，强制覆盖也应该拉云端
+    );
+    final List<Archive> applied = <Archive>[];
+    final List<String> snapshots = <String>[];
+    final SyncManager sync = _manager(
+      gateway: gateway,
+      readArchive: () => _archive('本机版本'),
+      applied: applied,
+      snapshots: snapshots,
+      readLocalChangeAt: () => DateTime(2030, 1, 1),
+    );
+
+    final SyncResult r = await sync.forcePullRemote();
+
+    expect(r.action, SyncAction.pulled);
+    expect(applied.single.notice, '云端版本');
+    expect(gateway.puts, 0);
+    expect(snapshots.single, contains('本机版本'));
+    sync.dispose();
+  });
+
+  test('重置云端：清空存档（可选资源）+ 备份云端那份 + 关掉自动同步', () async {
+    final FakeGateway gateway = FakeGateway(
+      archive: _archive('云端版本'),
+      updatedAt: DateTime(2026, 5, 1),
+    );
+    final List<bool> autoSyncLog = <bool>[];
+    final List<String> snapshots = <String>[];
+    final SyncManager sync = _manager(
+      gateway: gateway,
+      readArchive: () => _archive('本机版本'),
+      applied: <Archive>[],
+      snapshots: snapshots,
+      autoSyncLog: autoSyncLog,
+    );
+    await sync.setAutoSync(true);
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    gateway.puts = 0; // 后面只看重置这一步
+
+    final SyncResult r = await sync.resetCloud(includeAssets: true);
+
+    expect(gateway.deletes, 1, reason: '云端存档要清掉');
+    expect(gateway.assetWipes, 1, reason: '勾了就把资源一起清');
+    expect(gateway.archive, isNull);
+    expect(snapshots.last, contains('云端版本'), reason: '云端那份先备份到本机');
+    expect(sync.autoSync, isFalse, reason: '避免刚清完又被推回去');
+    expect(autoSyncLog.last, isFalse);
+    expect(r.message, contains('重置'));
     sync.dispose();
   });
 }

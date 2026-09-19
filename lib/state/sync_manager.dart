@@ -29,6 +29,12 @@ abstract class CloudGateway {
   fetchArchiveMeta();
 
   Future<void> putArchive(Archive archive);
+
+  /// 清空云端存档（管理员「重置云端」）。
+  Future<void> deleteArchive();
+
+  /// 清空云端资源索引（可选），返回删掉的条数。
+  Future<int> deleteAllAssets();
 }
 
 /// 云端不可达（网络问题），与「服务端返回错误」区分开。
@@ -65,6 +71,24 @@ class RepositoryCloudGateway implements CloudGateway {
     await repository.save(archive);
     if (repository.isOffline) {
       throw const CloudUnreachable('云端写入失败');
+    }
+  }
+
+  @override
+  Future<void> deleteArchive() async {
+    try {
+      await client.deleteArchive();
+    } on Object catch (e) {
+      throw CloudUnreachable(e);
+    }
+  }
+
+  @override
+  Future<int> deleteAllAssets() async {
+    try {
+      return await client.deleteAllAssets();
+    } on Object catch (e) {
+      throw CloudUnreachable(e);
     }
   }
 }
@@ -293,6 +317,115 @@ class SyncManager extends ChangeNotifier {
       return _done(
         unreachable ? SyncAction.offline : SyncAction.error,
         unreachable ? '云端暂不可达，稍后会自动重试' : '同步失败：$e',
+      );
+    } finally {
+      _syncing = false;
+      notifyListeners();
+    }
+  }
+
+  // ------------------------------------------------------------------
+  // 管理员工具（仅解锁管理员后可调用；界面上都带二次确认）
+  // ------------------------------------------------------------------
+
+  /// 强制用本机存档覆盖云端（不看时间戳）。覆盖前把云端那份留成本机快照。
+  Future<SyncResult> forcePushLocal() async {
+    final CloudGateway? gateway = _gateway;
+    if (gateway == null) {
+      return const SyncResult(SyncAction.disabled, '未启用云端同步');
+    }
+    if (_syncing) return const SyncResult(SyncAction.pushed, '正在同步，请稍候');
+    _syncing = true;
+    notifyListeners();
+    try {
+      final ({Archive? archive, int revision, DateTime? updatedAt}) remote =
+          await gateway.fetchArchiveMeta();
+      final Archive? remoteArchive = remote.archive;
+      if (remoteArchive != null) {
+        // 先把云端旧版备份到本机，出事了还能捞回来
+        await _writeSnapshot(_encode(remoteArchive));
+      }
+      await gateway.putArchive(_readArchive());
+      await _markLocalSynced(DateTime.now());
+      return _done(
+        SyncAction.pushed,
+        remoteArchive == null ? '已强制上传本机存档到云端' : '已用本机存档覆盖云端（云端旧版已备份到本机快照）',
+      );
+    } catch (e) {
+      final bool unreachable = e is! ApiException;
+      return _done(
+        unreachable ? SyncAction.offline : SyncAction.error,
+        unreachable ? '云端暂不可达，稍后自动重试' : '强制覆盖失败：$e',
+      );
+    } finally {
+      _syncing = false;
+      notifyListeners();
+    }
+  }
+
+  /// 强制用云端存档覆盖本机（不看时间戳）。覆盖前把本机那份留成本机快照。
+  Future<SyncResult> forcePullRemote() async {
+    final CloudGateway? gateway = _gateway;
+    if (gateway == null) {
+      return const SyncResult(SyncAction.disabled, '未启用云端同步');
+    }
+    if (_syncing) return const SyncResult(SyncAction.pulled, '正在同步，请稍候');
+    _syncing = true;
+    notifyListeners();
+    try {
+      final ({Archive? archive, int revision, DateTime? updatedAt}) remote =
+          await gateway.fetchArchiveMeta();
+      final Archive? remoteArchive = remote.archive;
+      if (remoteArchive == null) {
+        return _done(SyncAction.offline, '云端没有存档，无法覆盖本机');
+      }
+      await _writeSnapshot(_encode(_readArchive()));
+      await _applyArchive(remoteArchive);
+      await _markLocalSynced(remote.updatedAt ?? DateTime.now());
+      return _done(SyncAction.pulled, '已用云端存档覆盖本机（本机旧版已备份）');
+    } catch (e) {
+      final bool unreachable = e is! ApiException;
+      return _done(
+        unreachable ? SyncAction.offline : SyncAction.error,
+        unreachable ? '云端暂不可达，稍后自动重试' : '强制覆盖失败：$e',
+      );
+    } finally {
+      _syncing = false;
+      notifyListeners();
+    }
+  }
+
+  /// 重置云端：清空云端存档（可选连资源一起清），并把云端那份先备份到本机。
+  ///
+  /// 清空后会**自动关掉「自动同步」**，否则下一次轮询又把本机内容推上去。
+  Future<SyncResult> resetCloud({bool includeAssets = false}) async {
+    final CloudGateway? gateway = _gateway;
+    if (gateway == null) {
+      return const SyncResult(SyncAction.disabled, '未启用云端同步');
+    }
+    if (_syncing) return const SyncResult(SyncAction.upToDate, '正在同步，请稍候');
+    _syncing = true;
+    notifyListeners();
+    try {
+      final ({Archive? archive, int revision, DateTime? updatedAt}) remote =
+          await gateway.fetchArchiveMeta();
+      final Archive? remoteArchive = remote.archive;
+      if (remoteArchive != null) await _writeSnapshot(_encode(remoteArchive));
+      await gateway.deleteArchive();
+      int assets = 0;
+      if (includeAssets) assets = await gateway.deleteAllAssets();
+      // 关掉自动同步，避免刚清空就被推回去
+      if (_autoSync) await setAutoSync(false);
+      return _done(
+        SyncAction.upToDate,
+        '云端已重置（存档已清空${includeAssets ? '，资源 $assets 条' : ''}'
+        '，云端内容已备份到本机快照；自动同步已关闭）',
+      );
+    } catch (e) {
+      final bool unreachable = e is! ApiException;
+      return _done(
+        unreachable ? SyncAction.offline : SyncAction.error,
+        unreachable ? '云端暂不可达，稍后自动重试' : '重置云端失败：$e',
       );
     } finally {
       _syncing = false;
