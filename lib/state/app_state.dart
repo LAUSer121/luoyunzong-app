@@ -9,6 +9,7 @@ import '../core/constants.dart';
 import '../core/image_utils.dart';
 import '../core/parsers.dart';
 import '../data/api_client.dart';
+import '../data/direct_repository.dart';
 import '../data/archive_codec.dart';
 import '../data/local_repository.dart';
 import '../data/netease_client.dart';
@@ -37,6 +38,9 @@ class AppState extends ChangeNotifier {
 
   /// 云端 API 客户端（设置页里「资源存储」等管理员操作要用；纯本地时为 null）。
   ApiClient? cloudClient;
+
+  /// 直连仓储（App 直接连 Aiven MySQL + 缤纷云；仅直连模式非空）。
+  DirectRepository? directRepo;
 
   /// 视频 / 图片上传上限（管理员在「云端资源存储」卡片里可调；
   /// 拿不到服务端值时用出厂默认）。

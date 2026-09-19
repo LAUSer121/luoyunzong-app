@@ -14,6 +14,8 @@ import '../../core/file_utils.dart';
 import '../../core/image_utils.dart';
 import '../../core/theme.dart';
 import '../../data/api_client.dart';
+import '../../data/direct_repository.dart';
+import '../../data/s3_client.dart';
 import '../../data/settings_store.dart';
 import '../../data/wallpaper_client.dart';
 import '../../domain/models.dart';
@@ -56,6 +58,11 @@ class _SettingsPageState extends State<SettingsPage> {
   final TextEditingController _videoMaxMB = TextEditingController();
   final TextEditingController _videoMaxSeconds = TextEditingController();
   final TextEditingController _imageMaxMB = TextEditingController();
+  final TextEditingController _dbPassword = TextEditingController();
+  bool _dbBusy = false;
+  bool _dbPasswordSet = false;
+  bool? _dbStatusOk;
+  String? _dbStatus;
   String _storageDriver = 'local';
   bool _storageSecretSet = false;
   bool _storageLoaded = false;
@@ -67,12 +74,27 @@ class _SettingsPageState extends State<SettingsPage> {
   Future<void> _loadStorageConfig() async {
     final AppState? state = mounted ? context.read<AppState>() : null;
     final ApiClient? client = state?.cloudClient;
-    if (client == null) {
+    final DirectRepository? direct = state?.directRepo;
+    if (client == null && direct == null) {
       if (mounted) setState(() => _storageLoaded = true);
       return;
     }
     try {
-      final Map<String, Object?> cfg = await client.fetchStorageConfig();
+      final Map<String, Object?> cfg;
+      if (client != null) {
+        cfg = await client.fetchStorageConfig();
+      } else {
+        // 直连模式：直接从数据库 app_settings 读
+        final Map<String, Object?>? saved = await direct!.readSetting(
+          'storage',
+        );
+        final Map<String, Object?>? limits = await direct.readSetting('limits');
+        cfg = <String, Object?>{
+          ...?saved,
+          'secretKeySet': (saved?['secretKey'] ?? '').toString().isNotEmpty,
+          'limits': ?limits,
+        };
+      }
       if (!mounted) return;
       setState(() {
         _storageDriver = '${cfg['driver'] ?? 'local'}';
@@ -92,7 +114,7 @@ class _SettingsPageState extends State<SettingsPage> {
       setState(() {
         _storageLoaded = true;
         _storageStatusOk = false;
-        _storageStatus = client.friendlyError(e);
+        _storageStatus = client?.friendlyError(e) ?? '保存失败：';
       });
     }
   }
@@ -145,15 +167,37 @@ class _SettingsPageState extends State<SettingsPage> {
 
   Future<void> _saveStorageConfig(AppState state, {bool silent = false}) async {
     final ApiClient? client = state.cloudClient;
-    if (client == null) return;
+    final DirectRepository? direct = state.directRepo;
+    if (client == null && direct == null) return;
     setState(() {
       _storageBusy = true;
       _storageStatus = null;
     });
     try {
-      final Map<String, Object?> saved = await client.saveStorageConfig(
-        _storagePayload(),
-      );
+      final Map<String, Object?> payload = _storagePayload();
+      final Map<String, Object?> saved;
+      if (client != null) {
+        saved = await client.saveStorageConfig(payload);
+      } else {
+        // 直连模式：直接写数据库 app_settings（密钥留空＝保持原值）
+        final Map<String, Object?>? old = await direct!.readSetting('storage');
+        final Map<String, Object?> merged = <String, Object?>{...?old};
+        payload.forEach((String k, Object? v) {
+          if (k == 'limits') return;
+          final bool isSecret = k == 'secretKey' || k == 'upyunPassword';
+          if (isSecret && ''.isEmpty) return;
+          merged[k] = v;
+        });
+        await direct.writeSetting('storage', merged);
+        final Object? limits = payload['limits'];
+        if (limits is Map) {
+          await direct.writeSetting('limits', limits.cast<String, Object?>());
+        }
+        saved = <String, Object?>{
+          ...merged,
+          'secretKeySet': (merged['secretKey'] ?? '').toString().isNotEmpty,
+        };
+      }
       if (!mounted) return;
       setState(() {
         _storageBusy = false;
@@ -175,7 +219,7 @@ class _SettingsPageState extends State<SettingsPage> {
       setState(() {
         _storageBusy = false;
         _storageStatusOk = false;
-        _storageStatus = client.friendlyError(e);
+        _storageStatus = client?.friendlyError(e) ?? '保存失败：';
       });
       rethrow;
     }
@@ -191,7 +235,8 @@ class _SettingsPageState extends State<SettingsPage> {
   /// 测试连接：**先保存再测**，否则测的还是上一次存进去的老配置。
   Future<void> _testStorageConfig(AppState state) async {
     final ApiClient? client = state.cloudClient;
-    if (client == null) return;
+    final DirectRepository? direct = state.directRepo;
+    if (client == null && direct == null) return;
     try {
       await _saveStorageConfig(state, silent: true);
     } catch (_) {
@@ -202,7 +247,30 @@ class _SettingsPageState extends State<SettingsPage> {
       _storageBusy = true;
       _storageStatus = null;
     });
-    final ({bool ok, String message}) r = await client.testStorage();
+    late final ({bool ok, String message}) r;
+    if (client != null) {
+      r = await client.testStorage();
+    } else {
+      final DirectRepository repo = direct!;
+      try {
+        await repo.ensureS3();
+        final S3Client? s3 = repo.s3Client;
+        if (s3 == null) {
+          r = (ok: false, message: '对象存储未配置（Endpoint/桶/AK/SK 不完整）');
+        } else {
+          final String probe = 'probe-${DateTime.now().millisecondsSinceEpoch}';
+          await s3.putObject(
+            id: probe,
+            mime: 'text/plain',
+            bytes: Uint8List.fromList(utf8.encode('luoyunzong probe')),
+          );
+          await s3.deleteObject(id: probe, mime: 'text/plain');
+          r = (ok: true, message: '直传缤纷云成功（桶 ${s3.config.bucket}）');
+        }
+      } on Object catch (e) {
+        r = (ok: false, message: '$e');
+      }
+    }
     if (!mounted) return;
     setState(() {
       _storageBusy = false;
@@ -352,6 +420,8 @@ class _SettingsPageState extends State<SettingsPage> {
       _useRemote = useRemote;
       _loadedSettings = true;
     });
+    _dbPasswordSet = (await _store.dbPassword()).trim().isNotEmpty;
+    if (mounted) setState(() {});
   }
 
   @override
@@ -370,6 +440,7 @@ class _SettingsPageState extends State<SettingsPage> {
     _videoMaxMB.dispose();
     _videoMaxSeconds.dispose();
     _imageMaxMB.dispose();
+    _dbPassword.dispose();
     super.dispose();
   }
 
@@ -440,6 +511,7 @@ class _SettingsPageState extends State<SettingsPage> {
         _archiveCard(state, unlocked),
         const SizedBox(height: 16),
         _syncCard(state),
+        _directCard(state),
         _cloudStorageCard(state),
         _dataSourceCard(state),
         const SizedBox(height: 16),
@@ -448,13 +520,193 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
+  /// 云端直连（不需要任何服务器）：填数据库口令即可让 App 直接连云。
+  Widget _directCard(AppState state) {
+    if (!AppConfig.canDirect || !state.unlocked) return const SizedBox.shrink();
+    final bool connected =
+        state.directRepo != null && !(state.directRepo?.isOffline ?? true);
+    return Column(
+      children: <Widget>[
+        GlassCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              const SectionTitle(
+                '云端直连（无需服务器）',
+                subtitle: 'App 直接连数据库与缤纷云：电脑关机、手机在外面都能同步',
+              ),
+              Row(
+                children: <Widget>[
+                  Icon(
+                    connected
+                        ? Icons.cloud_done_outlined
+                        : Icons.cloud_off_outlined,
+                    size: 20,
+                    color: connected ? AppColors.jade : AppColors.textFaint,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      connected
+                          ? '已连上：${AppConfig.dbHost} / ${AppConfig.dbName}'
+                          : '未连接：填入数据库口令并重启应用即可开启直连',
+                      style: TextStyle(
+                        color: connected ? AppColors.text : AppColors.textFaint,
+                        fontSize: 13,
+                        height: 1.7,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: <Widget>[
+                  Expanded(
+                    child: TextField(
+                      controller: _dbPassword,
+                      obscureText: true,
+                      decoration: InputDecoration(
+                        labelText: '数据库口令',
+                        hintText: _dbPasswordSet ? '已保存，留空＝不修改' : '只存本机，不烧进安装包',
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  FilledButton.icon(
+                    onPressed: _dbBusy ? null : () => _saveDbPassword(),
+                    icon: const Icon(Icons.link, size: 18),
+                    label: const Text('保存并连接'),
+                  ),
+                  const SizedBox(width: 8),
+                  OutlinedButton.icon(
+                    onPressed: _dbBusy ? null : () => _testDirect(),
+                    icon: const Icon(Icons.wifi_tethering, size: 18),
+                    label: const Text('测试连接'),
+                  ),
+                ],
+              ),
+              if (_dbStatus != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 10),
+                  child: Text(
+                    _dbStatus!,
+                    style: TextStyle(
+                      color: (_dbStatusOk ?? false)
+                          ? AppColors.jade
+                          : AppColors.danger,
+                      fontSize: 12,
+                      height: 1.7,
+                    ),
+                  ),
+                ),
+              const SizedBox(height: 8),
+              Text(
+                '口令只保存在这台设备上（安装包里没有），所以每台设备各填一次；\n'
+                '数据库 ${AppConfig.dbHost}:${AppConfig.dbPort}，图片视频仍在缤纷云。\n'
+                'Web 浏览器版不支持直连（浏览器开不了原始 TCP），会走本地存档。',
+                style: const TextStyle(
+                  color: AppColors.textFaint,
+                  fontSize: 12,
+                  height: 1.8,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+      ],
+    );
+  }
+
+  /// 保存数据库口令（重启后生效）。
+  Future<void> _saveDbPassword() async {
+    final String pwd = _dbPassword.text.trim();
+    if (pwd.isEmpty) {
+      _toast('请输入数据库口令');
+      return;
+    }
+    await _store.setDbPassword(pwd);
+    if (!mounted) return;
+    setState(() {
+      _dbPasswordSet = true;
+      _dbStatusOk = true;
+      _dbStatus = '已保存。请重启应用，启动后就会直连云端（口令只存在本机）。';
+      _dbPassword.clear();
+    });
+    _toast('数据库口令已保存，重启应用后生效');
+  }
+
+  /// 实测一次：MySQL 能否连上 + 缤纷云能否直传。
+  Future<void> _testDirect() async {
+    setState(() {
+      _dbBusy = true;
+      _dbStatus = null;
+    });
+    final String pwd = _dbPassword.text.trim().isEmpty
+        ? await _store.dbPassword()
+        : _dbPassword.text.trim();
+    final List<String> lines = <String>[];
+    bool bad = false;
+    DirectRepository? repo;
+    try {
+      repo = DirectRepository(
+        db: DbConfig(
+          host: AppConfig.dbHost,
+          port: AppConfig.dbPort,
+          user: AppConfig.dbUser,
+          password: pwd,
+          database: AppConfig.dbName,
+          orgId: AppConfig.dbOrg,
+        ),
+      );
+      await repo.ensureS3();
+      final Archive? loaded = await repo.load();
+      if (repo.isOffline) {
+        lines.add('数据库连接失败：口令不对或网络不通');
+        bad = true;
+      } else {
+        lines.add(
+          '数据库连接成功（存档${loaded == null ? '为空' : '：${loaded.memberList.length} 名成员'}）',
+        );
+      }
+      final S3Client? s3 = repo.s3Client;
+      if (s3 == null) {
+        lines.add('对象存储未配置：图片会内联进存档（不丢数据，只是存档变大）');
+      } else {
+        final String probeId = 'probe-${DateTime.now().millisecondsSinceEpoch}';
+        await s3.putObject(
+          id: probeId,
+          mime: 'text/plain',
+          bytes: Uint8List.fromList(utf8.encode('luoyunzong probe')),
+        );
+        await s3.deleteObject(id: probeId, mime: 'text/plain');
+        lines.add('缤纷云直传成功（桶 ${s3.config.bucket}）');
+      }
+    } on Object catch (e) {
+      lines.add('测试失败：$e');
+      bad = true;
+    } finally {
+      repo?.dispose();
+    }
+    if (!mounted) return;
+    setState(() {
+      _dbBusy = false;
+      _dbStatusOk = !bad;
+      _dbStatus = lines.join('\n');
+    });
+  }
+
   /// 云端资源存储（缤纷云 / 又拍云 / S3）——**只有管理员解锁后才显示**。
   ///
   /// 配置存在服务端 MySQL 的 app_settings 里；保存后新上传的头像/立绘/背景/视频
   /// 就直接进对象存储，数据库只留索引。密钥只存服务端，界面永远不回明文。
   Widget _cloudStorageCard(AppState state) {
     final ApiClient? client = state.cloudClient;
-    if (client == null || !state.unlocked) return const SizedBox.shrink();
+    final DirectRepository? direct = state.directRepo;
+    if ((client == null && direct == null) || !state.unlocked) {
+      return const SizedBox.shrink();
+    }
 
     if (!_storageLoaded && !_storageLoading) {
       _storageLoading = true;

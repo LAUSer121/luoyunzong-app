@@ -31,6 +31,7 @@ Future<void> main() async {
     state,
     settings: settings,
     cloud: resolved.cloud,
+    direct: resolved.direct,
   );
   // 开关本来就开着的话，启动后再对齐一次（存档已加载完，不会停在旧数据上）。
   if (sync.autoSync) {

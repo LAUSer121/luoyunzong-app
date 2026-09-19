@@ -62,4 +62,36 @@ class AppConfig {
 
   /// 界面展示用的数据源名称（不含任何地址）。
   static String get dataSourceLabel => hasCloud ? '云端同步' : '本地存档';
+
+  // ------------------------------------------------------------------
+  // 直连模式：App 直接连 Aiven MySQL + 缤纷云，不需要任何服务器。
+  // （Web 端不支持 —— 浏览器开不了原始 TCP。）
+  // ------------------------------------------------------------------
+
+  /// 数据库主机 / 用户 / 库名：非敏感，打包时用 --dart-define 注入。
+  static const String dbHost = String.fromEnvironment('LUOYUNZONG_DB_HOST');
+  static const int dbPort = int.fromEnvironment(
+    'LUOYUNZONG_DB_PORT',
+    defaultValue: 23483,
+  );
+  static const String dbUser = String.fromEnvironment('LUOYUNZONG_DB_USER');
+  static const String dbName = String.fromEnvironment(
+    'LUOYUNZONG_DB_NAME',
+    defaultValue: 'defaultdb',
+  );
+  static const String dbOrg = String.fromEnvironment(
+    'LUOYUNZONG_DB_ORG',
+    defaultValue: 'default',
+  );
+
+  /// 数据库口令：**默认不烧进包里**（仓库和 Release 都是公开的），
+  /// 由管理员在每个设备上填一次、存在本机；自己本地打包时也可以用
+  /// --dart-define=LUOYUNZONG_DB_PASSWORD=xxx 预置。
+  static const String dbPasswordBaked = String.fromEnvironment(
+    'LUOYUNZONG_DB_PASSWORD',
+  );
+
+  /// 是否具备直连能力（桌面 / 手机可以，Web 不行）。
+  static bool get canDirect =>
+      !kIsWeb && dbHost.trim().isNotEmpty && dbUser.trim().isNotEmpty;
 }

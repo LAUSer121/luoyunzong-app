@@ -15,14 +15,20 @@ on:
 env:
   FLUTTER_VERSION: '3.47.4'
   JAVA_VERSION: '17'
-  # 云端同步：在仓库 Settings → Variables/Secrets 里配置这两项后，
-  # 构建出的单文件默认走云端（应用界面不显示任何服务地址/数据库信息）。
+  # 云同步有两种接法，构建时都可以烧进去（应用界面不显示任何服务地址/数据库信息）：
+  #  1) 直连模式（推荐，不需要服务器）：烧数据库主机信息，口令由管理员在每台设备上填
+  #  2) 服务端模式：烧 API 地址 + 令牌（自己跑 server/ 或部署到 PaaS 时用）
   # 未配置时值为空字符串，应用自动使用本地存档。
   API_BASE: ${{ vars.LUOYUNZONG_API_BASE }}
   API_TOKEN: ${{ secrets.LUOYUNZONG_API_TOKEN }}
   DART_DEFINES: >-
     --dart-define=LUOYUNZONG_API_BASE=${{ vars.LUOYUNZONG_API_BASE }}
     --dart-define=LUOYUNZONG_API_TOKEN=${{ secrets.LUOYUNZONG_API_TOKEN }}
+    --dart-define=LUOYUNZONG_DB_HOST=${{ vars.LUOYUNZONG_DB_HOST }}
+    --dart-define=LUOYUNZONG_DB_PORT=${{ vars.LUOYUNZONG_DB_PORT }}
+    --dart-define=LUOYUNZONG_DB_USER=${{ vars.LUOYUNZONG_DB_USER }}
+    --dart-define=LUOYUNZONG_DB_NAME=${{ vars.LUOYUNZONG_DB_NAME }}
+    --dart-define=LUOYUNZONG_DB_ORG=${{ vars.LUOYUNZONG_DB_ORG }}
 
 jobs:
   # ------------------------------------------------------------------

@@ -7,6 +7,8 @@ library;
 
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../core/app_config.dart';
+
 class SettingsStore {
   static const String _kApiBaseUrl = 'luoyunzong_api_base_url';
   static const String _kApiToken = 'luoyunzong_api_token';
@@ -16,6 +18,7 @@ class SettingsStore {
   static const String _kAutoSync = 'luoyunzong_auto_sync';
   static const String _kLastSyncAt = 'luoyunzong_last_sync_at';
   static const String _kLastLocalChange = 'luoyunzong_last_local_change';
+  static const String _kDbPassword = 'luoyunzong_db_password';
 
   /// 构建期注入的默认服务端地址与令牌（未注入时为空串）。
   static const String bakedApiBase = String.fromEnvironment(
@@ -77,6 +80,15 @@ class SettingsStore {
 
   Future<void> setLastLocalChangeAt(DateTime at) async =>
       (await _prefs).setInt(_kLastLocalChange, at.millisecondsSinceEpoch);
+
+  /// 数据库口令：直连模式要用；只存本机（不烧进安装包、不同步到云端）。
+  Future<String> dbPassword() async {
+    final String saved = (await _prefs).getString(_kDbPassword) ?? '';
+    return saved.isNotEmpty ? saved : AppConfig.dbPasswordBaked;
+  }
+
+  Future<void> setDbPassword(String value) async =>
+      (await _prefs).setString(_kDbPassword, value.trim());
 
   Future<bool> bgmMuted() async => (await _prefs).getBool(_kMuted) ?? false;
 

@@ -8,6 +8,7 @@ import 'dart:async';
 
 import '../data/api_client.dart';
 import '../data/api_repository.dart';
+import '../data/direct_repository.dart';
 import '../data/local_repository.dart';
 import '../data/settings_store.dart';
 import '../domain/repository.dart';
@@ -17,18 +18,48 @@ import 'app_config.dart';
 
 /// 数据源装配结果。
 typedef ResolvedRepository = ({
-  /// 实际使用的仓储：云端可用时是 [ApiRepository]，否则本地仓储。
+  /// 实际使用的仓储：直连 / 云端 API / 本地。
   LuoyunRepository repository,
 
   /// 本地仓储（同步快照固定写在它这儿）。
   LocalRepository local,
 
-  /// 云端通道：即使启动时探测失败也会保留，供自动/手动同步稍后重试。
+  /// 云端通道（API 模式）：即使启动时探测失败也会保留，供稍后重试。
   ApiRepository? cloud,
+
+  /// 直连通道（App 直接连数据库 + 对象存储）：仅直连模式非空。
+  DirectRepository? direct,
 });
 
+/// 直连模式的候选：打包时注入了数据库主机 + 本机存过口令，且不是 Web。
+///
+/// 数据库口令不烧进包里（仓库和 Release 都是公开的），由管理员在设置里填一次。
+Future<ResolvedRepository?> tryDirect(
+  AppState? state,
+  SettingsStore settings, {
+  LocalRepository? local,
+}) async {
+  if (!AppConfig.canDirect) return null;
+  final String password = await settings.dbPassword();
+  if (password.trim().isEmpty) return null;
+  final LocalRepository localRepo = local ?? LocalRepository();
+  final DirectRepository direct = DirectRepository(
+    db: DbConfig(
+      host: AppConfig.dbHost,
+      port: AppConfig.dbPort,
+      user: AppConfig.dbUser,
+      password: password,
+      database: AppConfig.dbName,
+      orgId: AppConfig.dbOrg,
+    ),
+    fallback: localRepo,
+  );
+  return (repository: direct, local: localRepo, cloud: null, direct: direct);
+}
+
 /// 选择数据源：
-/// 1) 构建期注入的候选地址能连通 → 云端 + 本地兜底；
+/// 0) 直连模式（构建期注入了数据库主机 + 本机存过口令）→ App 直接连云端；
+/// 1) 构建期注入的候选地址能连通 → 云端 API + 本地兜底；
 /// 2) 都不通 → 先用本地存档，同时保留云端通道（[ResolvedRepository.cloud]），
 ///    打开自动同步后会定时重试，恢复即自动补齐；
 /// 3) 没有任何候选 → 纯本地，无云同步。
@@ -53,15 +84,20 @@ Future<ResolvedRepository> resolveRepository({
       fallback: localRepo,
     );
     if (await client.ping()) {
-      return (repository: api, local: localRepo, cloud: api);
+      return (repository: api, local: localRepo, cloud: api, direct: null);
     }
     // 第一个候选留作离线重试通道（复用已建好的 client，不再多开连接）。
     offlineCloud ??= api;
   }
   if (offlineCloud == null) {
-    return (repository: localRepo, local: localRepo, cloud: null);
+    return (repository: localRepo, local: localRepo, cloud: null, direct: null);
   }
-  return (repository: localRepo, local: localRepo, cloud: offlineCloud);
+  return (
+    repository: localRepo,
+    local: localRepo,
+    cloud: offlineCloud,
+    direct: null,
+  );
 }
 
 /// 按「构建期注入 + 用户设置」挑候选地址（真机启动走这条）。
@@ -69,8 +105,17 @@ Future<ResolvedRepository> resolveRepository({
 /// - 构建期地址（可多个）优先，桌面/网页端再兜底本机回环；
 /// - 只有允许显示服务端配置的调试包，才把用户手填的地址也算作候选。
 Future<ResolvedRepository> resolveRepositoryFromSettings(
-  SettingsStore settings,
-) async {
+  SettingsStore settings, {
+  LocalRepository? local,
+}) async {
+  // 直连优先：App 直接连数据库 + 对象存储，不需要任何服务器。
+  final ResolvedRepository? direct = await tryDirect(
+    null,
+    settings,
+    local: local,
+  );
+  if (direct != null) return direct;
+
   final String savedBase = (await settings.apiBaseUrl()).trim();
   final String savedToken = (await settings.apiToken()).trim();
   final bool savedEnabled = await settings.useRemote();
@@ -83,17 +128,21 @@ Future<ResolvedRepository> resolveRepositoryFromSettings(
       if (allowSaved && savedBase.isNotEmpty) savedBase,
     ],
     token: bakedToken.isNotEmpty ? bakedToken : savedToken,
+    local: local,
   );
 }
 
-/// 把云同步引擎接到 [AppState] 上（`cloud` 为空时引擎只报「未启用云端」）。
+/// 把云同步引擎接到 [AppState] 上（`cloud`/`direct` 都为空时只报「未启用云端」）。
 Future<SyncManager> attachSync(
   AppState state, {
   required SettingsStore settings,
   ApiRepository? cloud,
+  DirectRepository? direct,
 }) async {
   final SyncManager sync = SyncManager(
-    gateway: cloud == null
+    gateway: direct != null
+        ? DirectCloudGateway(direct)
+        : cloud == null
         ? null
         : RepositoryCloudGateway(repository: cloud, client: cloud.client),
     readArchive: () => state.archive,
@@ -106,13 +155,17 @@ Future<SyncManager> attachSync(
     persistLastSyncAt: settings.setLastSyncAt,
   );
   state.sync = sync;
-  // 设置页里的管理员操作（对象存储配置等）复用同一个客户端。
+  // 设置页里的管理员操作（对象存储配置等）复用同一个通道。
   state.cloudClient = cloud?.client;
-  // 上传上限由服务端下发（管理员可调），拿不到就用出厂默认。
-  //
-  // 注意：**绝不能 await**（也不能没有超时）——云端挂了的时候，
-  // 这里会把首帧一起卡住，表现就是「应用打不开」。放后台刷新即可。
-  unawaited(state.refreshUploadLimits());
+  state.directRepo = direct;
+  // 上传上限/存储配置：直连模式直接从数据库读。
+  if (direct != null) {
+    unawaited(direct.ensureS3());
+  } else {
+    // 注意：**绝不能 await**（也不能没有超时）——云端挂了的时候，
+    // 这里会把首帧一起卡住，表现就是「应用打不开」。放后台刷新即可。
+    unawaited(state.refreshUploadLimits());
+  }
   state.restoreLocalChangeAt(await settings.lastLocalChangeAt());
   sync.restore(
     autoSync: await settings.autoSync(),

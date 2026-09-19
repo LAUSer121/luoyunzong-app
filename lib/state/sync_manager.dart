@@ -19,6 +19,7 @@ import 'package:flutter/foundation.dart';
 
 import '../data/api_client.dart';
 import '../data/api_repository.dart';
+import '../data/direct_repository.dart';
 import '../data/archive_codec.dart';
 import '../data/asset_split.dart';
 import '../domain/models.dart';
@@ -87,6 +88,49 @@ class RepositoryCloudGateway implements CloudGateway {
   Future<int> deleteAllAssets() async {
     try {
       return await client.deleteAllAssets();
+    } on Object catch (e) {
+      throw CloudUnreachable(e);
+    }
+  }
+}
+
+/// 直连模式的网关：App 直接读写 Aiven MySQL（没有中间服务器）。
+class DirectCloudGateway implements CloudGateway {
+  DirectCloudGateway(this.repository);
+
+  final DirectRepository repository;
+
+  @override
+  Future<({Archive? archive, int revision, DateTime? updatedAt})>
+  fetchArchiveMeta() async {
+    try {
+      return await repository.loadMeta();
+    } on Object catch (e) {
+      throw CloudUnreachable(e);
+    }
+  }
+
+  @override
+  Future<void> putArchive(Archive archive) async {
+    await repository.save(archive);
+    if (repository.isOffline) {
+      throw const CloudUnreachable('云端写入失败');
+    }
+  }
+
+  @override
+  Future<void> deleteArchive() async {
+    try {
+      await repository.clear();
+    } on Object catch (e) {
+      throw CloudUnreachable(e);
+    }
+  }
+
+  @override
+  Future<int> deleteAllAssets() async {
+    try {
+      return await repository.deleteAllAssets();
     } on Object catch (e) {
       throw CloudUnreachable(e);
     }
